@@ -1,0 +1,1101 @@
+/* Argo screen draft v2. A real operations display with an emergency mode.
+   Color semantics follow avionics practice: green normal, amber caution, red warning, cyan actions.
+   Vital-sign identity colors follow patient monitors: HR green, SpO2 cyan, respiration yellow.
+   Argo's own color (violet) marks guidance and linked sources, like the magenta guidance line in a cockpit. */
+:root {
+  --bg: #04070b;
+  --panel: #0a0f16;
+  --panel-2: #0d141d;
+  --line: #19222e;
+  --line-2: #243040;
+  --text: #e6ecf3;
+  --soft: #b9c4d1;
+  --muted: #7f8c9c;
+  --dim: #505c6b;
+  --green: #3fdc8a;
+  --cyan: #3ec8f2;
+  --yellow: #f0cf4a;
+  --amber: #ffab2e;
+  --amber-bg: rgba(255, 171, 46, .12);
+  --red: #ff4a4a;
+  --red-bg: rgba(255, 74, 74, .13);
+  --argo: #c590ff;
+  --argo-bg: rgba(197, 144, 255, .12);
+  --sans: 'Barlow', 'Segoe UI', system-ui, sans-serif;
+  --cond: 'Barlow Semi Condensed', 'Barlow', 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --t: .7s;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: var(--bg); overflow: hidden; }
+body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: antialiased; }
+body.boot *, body.boot *::before, body.boot *::after { transition: none !important; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Fixed to the window and scaled to fit (app.js, fit): fixed, so its unscaled box never widens the page on a phone.
+   It is 1080 px high and 1920 px wide, or wider in a window wider than 16:9 (up to 2600 px, about 2.4:1), so the
+   monitor fills the window with no black bars at the sides (Alex, Nov 8): --W is its width and --X the extra width,
+   which the panel columns below share. Its center, scale and width move smoothly when the window or the strip
+   under it changes. */
+.stage {
+  --W: 1920px; --X: 0px;
+  position: fixed; left: 50%; top: 50%; width: var(--W); height: 1080px; overflow: hidden;
+  transform: translate(-50%, -50%) scale(var(--s, 1));
+  background: radial-gradient(1400px 800px at 50% 40%, #08101a, var(--bg) 70%);
+  transition: transform .5s var(--ease), top .5s var(--ease), width var(--t) var(--ease);
+}
+
+/* Generic panel */
+.panel {
+  position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  transition: left var(--t) var(--ease), top var(--t) var(--ease), width var(--t) var(--ease), height var(--t) var(--ease),
+              opacity var(--t) var(--ease), filter var(--t) var(--ease), border-color .5s, box-shadow .5s;
+  overflow: hidden;
+}
+.ph { height: 34px; display: flex; align-items: center; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.ph .t { font-family: var(--cond); font-weight: 600; font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: var(--soft); white-space: nowrap; }
+.ph .r { margin-left: auto; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.ph .r b { color: var(--soft); font-weight: 500; }
+.hide { opacity: 0; pointer-events: none; }
+.dimmed { opacity: .32; filter: saturate(.25); }
+.active { border-color: #3a4a5e; box-shadow: 0 0 0 1px rgba(255, 255, 255, .04), 0 18px 50px rgba(0, 0, 0, .5); }
+
+/* Linked source highlight: violet corner brackets plus a citation number */
+.src { position: relative; }
+.src::after {
+  content: ''; position: absolute; inset: 2px; pointer-events: none; border-radius: 5px;
+  border: 2px solid var(--argo); box-shadow: 0 0 22px rgba(197, 144, 255, .35), inset 0 0 18px rgba(197, 144, 255, .08);
+  animation: srcIn .9s var(--ease) both;
+}
+@keyframes srcIn { 0% { opacity: 0; transform: scale(1.04); } 100% { opacity: 1; transform: none; } }
+.cite {
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px;
+  background: var(--argo); color: #1b0b2e; font: 700 13px/1 var(--mono); vertical-align: middle;
+}
+.src > .cite.pin { position: absolute; top: 8px; right: 10px; z-index: 3; box-shadow: 0 0 0 3px var(--bg); }
+.panel.srcp { border-color: var(--argo); box-shadow: 0 0 0 1px var(--argo), 0 0 34px rgba(197, 144, 255, .22); }
+
+/* LEDs */
+.led { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--dim); margin-right: 8px; vertical-align: 1px; }
+.led.ok { background: var(--green); box-shadow: 0 0 8px rgba(63, 220, 138, .6); }
+.led.amber { background: var(--amber); box-shadow: 0 0 8px rgba(255, 171, 46, .6); }
+.led.red { background: var(--red); box-shadow: 0 0 8px rgba(255, 74, 74, .7); }
+.led.argo { background: var(--argo); box-shadow: 0 0 8px rgba(197, 144, 255, .6); }
+
+/* ---------- Status bar ---------- */
+.sbar { position: absolute; left: 0; right: 0; top: 0; height: 56px; display: flex; align-items: stretch; background: #070b11; border-bottom: 1px solid var(--line); }
+.sb { display: flex; flex-direction: column; justify-content: center; padding: 0 22px; border-right: 1px solid var(--line); white-space: nowrap; }
+.sb .k { font-family: var(--cond); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.sb .v { font-size: 18px; font-weight: 500; color: var(--text); margin-top: 1px; }
+.sb .v b { font-weight: 600; }
+.sb-brand { flex-direction: row; align-items: center; gap: 14px; padding-left: 20px; }
+.logo { width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--argo); position: relative; }
+.logo::after { content: ''; position: absolute; inset: 8px; border-radius: 50%; background: var(--argo); }
+.wm { font-weight: 700; font-size: 21px; letter-spacing: .3em; }
+.disp { font-family: var(--cond); font-size: 13px; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; border: 1px solid var(--line-2); padding: 4px 8px; border-radius: 4px; }
+.sb-time .v { font-family: var(--mono); font-size: 22px; font-weight: 500; }
+.sb-alarm { min-width: 150px; transition: background .5s; }
+.sb-alarm .v { font-family: var(--mono); font-size: 20px; }
+.sb-alarm.on { background: var(--red); }
+.sb-alarm.on .k, .sb-alarm.on .v { color: #fff; }
+.sb-alarm.on.amber { background: var(--amber); }
+.sb-alarm.on.amber .k, .sb-alarm.on.amber .v { color: #241500; }
+.sb-proto { margin-left: auto; border-right: 0; }
+.sb-proto span { font-family: var(--cond); font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--amber); border: 1px solid rgba(255, 171, 46, .45); padding: 6px 10px; border-radius: 4px; }
+/* sound mark: shown only while sound is off (before the first key press or click, or muted with M) */
+.sb-snd { border-right: 0; border-left: 1px solid var(--line); }
+.sb-snd.off { display: none; }
+.sb-snd .v { display: flex; align-items: center; gap: 9px; margin: 0; font-family: var(--cond); font-size: 13px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.sb-snd svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- Alarm line: memo when quiet, banner and clocks in an emergency ---------- */
+.aline { position: absolute; left: 16px; right: 16px; top: 66px; height: 62px; }
+.memo { position: absolute; inset: 0; display: flex; align-items: center; gap: 28px; padding: 0 18px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); transition: opacity .5s; }
+.memo .no { font-family: var(--cond); font-weight: 600; font-size: 15px; letter-spacing: .14em; color: var(--green); }
+.memo .m { font-size: 15px; color: var(--muted); }
+.memo .m b { color: var(--soft); font-weight: 500; }
+.banner { position: absolute; left: 0; top: 0; bottom: 0; right: 0; display: flex; align-items: stretch; border-radius: 6px; overflow: hidden; transition: opacity .4s, right var(--t) var(--ease); }
+.b-main { flex: 1; display: flex; align-items: center; gap: 22px; padding: 0 22px; background: var(--amber); color: #1e1200; transition: background .5s, color .5s; }
+.banner.red .b-main { background: var(--red); color: #fff; animation: flash 1.6s steps(1) infinite; }
+@keyframes flash { 0%, 70% { filter: none; } 70.01%, 100% { filter: brightness(.82); } }
+.b-title { font-family: var(--cond); font-weight: 700; font-size: 30px; letter-spacing: .06em; white-space: nowrap; }
+.b-sep { width: 1px; align-self: stretch; margin: 12px 0; background: currentColor; opacity: .35; }
+.b-meta { font-size: 16px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
+.b-meta small { display: block; font-size: 12.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; opacity: .75; }
+.b-level { margin-left: auto; font-family: var(--cond); font-weight: 700; font-size: 15px; letter-spacing: .14em; padding: 7px 12px; border: 2px solid currentColor; border-radius: 4px; white-space: nowrap; }
+/* AUDIO PAUSED, like a monitor: the alarm sounded one burst, then its audio paused on its own (sound.js) */
+.b-snd { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-family: var(--cond); font-weight: 700; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
+.b-snd svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.b-snd.off { display: none; }
+.b-snd:not(.off) + .b-level { margin-left: 0; }
+.clocks { position: absolute; right: 0; top: 0; bottom: 0; display: flex; gap: 10px; }
+.clock { width: 236px; height: 62px; padding: 7px 14px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line-2); transition: opacity .5s, width var(--t) var(--ease), padding var(--t) var(--ease), margin var(--t) var(--ease), border-color .5s, box-shadow .5s; overflow: hidden; white-space: nowrap; }
+.clock .k { font-family: var(--cond); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.clock .v { font-family: var(--mono); font-size: 27px; font-weight: 500; line-height: 1.15; }
+.clock.o2 { border-color: var(--red); background: linear-gradient(180deg, rgba(255, 74, 74, .22), rgba(255, 74, 74, .08)); }
+.clock.o2 .k { color: #ffb3b3; }
+.clock.o2 .v { color: #ff6b6b; }
+.clock.off { width: 0; padding: 0; margin-left: -10px; opacity: 0; border-width: 0; }
+
+/* ---------- Crew ---------- */
+.crew .list { display: grid; grid-template-rows: repeat(4, 1fr); height: calc(100% - 34px); }
+.tile { position: relative; display: grid; grid-template-columns: 132px 1fr; gap: 16px; padding: 14px 16px; border-bottom: 1px solid var(--line); transition: opacity var(--t), filter var(--t), background .5s, box-shadow .5s; }
+.tile:last-child { border-bottom: 0; }
+.portrait { position: relative; width: 132px; height: 170px; border-radius: 4px; overflow: hidden; background: #111a25; border: 1px solid var(--line-2); align-self: center; }
+.portrait img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.t-body { display: grid; grid-template-columns: 230px 1fr; gap: 18px; align-content: center; transition: grid-template-columns var(--t) var(--ease); }
+.t-id .nm { font-family: var(--cond); font-weight: 700; font-size: 30px; letter-spacing: .04em; line-height: 1; }
+.t-id .rl { font-size: 15px; color: var(--muted); margin-top: 6px; }
+.t-id .loc { margin-top: 14px; font-family: var(--cond); font-weight: 600; font-size: 15px; letter-spacing: .1em; text-transform: uppercase; color: var(--soft); }
+.t-id .st { font-size: 15px; color: var(--muted); margin-top: 4px; }
+.t-id .st b { font-weight: 600; }
+.t-id .sn { font-size: 13px; color: var(--dim); margin-top: 10px; white-space: nowrap; }
+.t-vit { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-content: center; transition: opacity .4s; }
+.mv { border-left: 2px solid var(--line-2); padding-left: 12px; }
+.mv .l { font-family: var(--cond); font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.mv .n { font-family: var(--cond); font-weight: 600; font-size: 40px; line-height: 1.05; }
+.mv .n small { font-family: var(--sans); font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+.mv .bl { font-size: 12.5px; color: var(--dim); }
+/* sparkline with a head dot that pings on each sync */
+.spk { position: relative; height: 30px; margin-top: 4px; }
+.spk svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.sp-head { position: absolute; right: -3px; top: 15px; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); }
+.sp-head.ping { animation: spPing .7s ease-out; }
+@keyframes spPing { 0% { transform: scale(2.4); filter: brightness(1.9); } 100% { transform: none; filter: none; } }
+.mv.hr .n { color: var(--green); } .mv.hr { border-color: rgba(63, 220, 138, .4); }
+.mv.o2 .n { color: var(--cyan); } .mv.o2 { border-color: rgba(62, 200, 242, .4); }
+.mv.tp .n { color: var(--text); }
+.mv .n.amber { color: var(--amber); }
+.tile .resp { display: none; margin-top: 10px; font-size: 14.5px; line-height: 1.35; }
+.tile .resp b { font-weight: 600; }
+.tile.alarm { background: linear-gradient(90deg, rgba(255, 171, 46, .12), transparent 70%); box-shadow: inset 4px 0 0 var(--amber); }
+.tile.alarm.red { background: linear-gradient(90deg, rgba(255, 74, 74, .14), transparent 70%); box-shadow: inset 4px 0 0 var(--red); }
+.tile.ok-hl { box-shadow: inset 4px 0 0 var(--argo); background: linear-gradient(90deg, rgba(197, 144, 255, .10), transparent 70%); }
+.tile.dimmed { opacity: .34; filter: saturate(.2); }
+/* compact tiles in emergency mode */
+.emg .crew .t-body { grid-template-columns: 1fr 0px; }
+.emg .crew .t-vit { opacity: 0; }
+.emg .crew .tile .resp { display: block; }
+.emg .crew .sn { white-space: normal; }
+
+/* ---------- Patient monitor ---------- */
+.monitor { background: #05080c; }
+.mon { display: grid; grid-template-columns: 1fr 300px; grid-template-rows: 112px 106px 1fr; height: calc(100% - 34px); }
+.wave { position: relative; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); }
+.wave canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.wave .wl { position: absolute; left: 8px; top: 6px; padding: 1px 6px; border-radius: 3px; background: rgba(5, 8, 12, .82); font-family: var(--cond); font-size: 13px; letter-spacing: .12em; z-index: 2; }
+.wave.ecg .wl { color: var(--green); }
+.wave.pl .wl { color: var(--cyan); }
+.num { position: relative; border-bottom: 1px solid var(--line); transition: background .5s; }
+.num .lab { position: absolute; left: 16px; top: 8px; font-family: var(--cond); font-weight: 600; font-size: 16px; letter-spacing: .1em; }
+.num .lab small { font-size: 12.5px; font-weight: 500; opacity: .8; letter-spacing: .04em; }
+.num .big { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); font-family: var(--cond); font-weight: 600; font-size: 84px; line-height: 1; transition: color .5s; }
+.num .lim { position: absolute; left: 16px; top: 30px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); line-height: 1.3; }
+.num.hr .lab, .num.hr .big { color: var(--green); }
+.num.o2 .lab, .num.o2 .big { color: var(--cyan); }
+.num.al { background: var(--amber-bg); }
+.num.al .big { color: var(--amber); }
+.num.al.crit { background: var(--red-bg); }
+.num.al.crit .big { color: var(--red); }
+.num .tag { position: absolute; left: 16px; bottom: 6px; font-family: var(--cond); font-weight: 700; font-size: 12.5px; letter-spacing: .1em; padding: 2px 6px; border-radius: 3px; background: var(--amber); color: #201300; }
+.num.al.crit .tag { background: var(--red); color: #fff; }
+.num.ok .tag { background: var(--green); color: #04150b; }
+/* heart symbol flashes on every beat; the pulse bar rises with every pulse, like a bedside monitor */
+.num .lab .heart { width: 15px; height: 15px; margin-left: 9px; vertical-align: -2px; fill: currentColor; opacity: .22; transition: opacity .06s, transform .06s; }
+.num .lab .heart.on { opacity: 1; transform: scale(1.3); filter: drop-shadow(0 0 6px currentColor); }
+.pbar { position: absolute; left: 168px; top: 36px; bottom: 32px; width: 10px; border-radius: 2px; background: rgba(62, 200, 242, .12); overflow: hidden; }
+.pbar i { position: absolute; left: 0; right: 0; bottom: 0; height: 20%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); -webkit-mask: repeating-linear-gradient(to top, #000 0 4px, transparent 4px 6px); mask: repeating-linear-gradient(to top, #000 0 4px, transparent 4px 6px); }
+.trends { grid-column: 1; display: grid; grid-template-columns: 1fr 1fr; border-right: 1px solid var(--line); }
+.tr { position: relative; padding: 10px 14px 6px; }
+.tr + .tr { border-left: 1px solid var(--line); }
+.tr .th { display: flex; justify-content: space-between; align-items: baseline; font-family: var(--cond); font-size: 13.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.tr .th b { font-family: var(--sans); text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 600; color: var(--amber); }
+.tr .th b.ok { color: var(--green); }
+.tr .th b.crit { color: var(--red); }
+.tr svg { width: 100%; height: 150px; display: block; margin-top: 6px; overflow: visible; }
+.side { grid-column: 2; display: grid; grid-template-rows: 1fr 1fr; }
+.sm { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+.sm:last-child { border-bottom: 0; }
+.sm .lab { font-family: var(--cond); font-size: 14px; letter-spacing: .12em; text-transform: uppercase; }
+.sm .lab small { display: block; font-family: var(--mono); font-size: 12px; letter-spacing: 0; color: var(--muted); text-transform: none; margin-top: 3px; }
+.sm .v { font-family: var(--cond); font-weight: 600; font-size: 46px; line-height: 1; }
+.sm.rr .lab, .sm.rr .v { color: var(--yellow); }
+.sm.tp .lab, .sm.tp .v { color: #dfe6ee; }
+.sm .v small { font-family: var(--sans); font-size: 14px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+
+/* trend chart pieces (kept from draft v1, recolored) */
+.chart .band { fill: rgba(185, 196, 209, .07); stroke: rgba(185, 196, 209, .28); stroke-dasharray: 3 4; }
+.chart .band-l { font: 500 11px var(--sans); fill: #8391a2; letter-spacing: .04em; }
+.chart .grid { stroke: rgba(185, 196, 209, .07); }
+.chart .ln { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+.chart .ln.in-hr { stroke: var(--green); }
+.chart .ln.in-o2 { stroke: var(--cyan); }
+.chart .ln.out { stroke: var(--amber); }
+.chart .ax { font: 11px var(--mono); fill: #5d6a7a; }
+.chart .thr { stroke: rgba(255, 74, 74, .55); stroke-dasharray: 4 5; stroke-width: 1.2; }
+.chart .thr-l { font: 600 11px var(--mono); fill: #ff7b7b; }
+.chart .nowline { stroke: rgba(230, 236, 243, .25); stroke-width: 1; }
+.chart .proj { stroke: var(--red); stroke-width: 2.2; stroke-dasharray: 6 5; }
+.chart .proj-dot { fill: var(--red); }
+.chart .proj-l { font: 600 13px var(--mono); fill: #ff6b6b; }
+.chart .ev { stroke: rgba(230, 236, 243, .4); stroke-width: 1; stroke-dasharray: 2 3; }
+.chart .ev-l { font: 600 10.5px var(--mono); fill: #aab6c4; }
+.chart .ev-l.argo { fill: var(--argo); }
+.chart .now-dot { stroke: var(--bg); stroke-width: 2; }
+.chart .ax.now { fill: #8b98a8; }
+.chart .ping { fill: none; stroke-width: 2; animation: tPing 1s ease-out forwards; }
+@keyframes tPing { from { r: 5px; opacity: .9; } to { r: 16px; opacity: 0; } }
+
+/* ---------- Habitat plan ---------- */
+.plan svg.map { position: absolute; left: 0; right: 0; top: 34px; width: 100%; height: calc(100% - 34px - var(--wf, 0px)); transition: height var(--t) var(--ease); }
+.map .mod { fill: #0f1824; stroke: #33445a; stroke-width: 1.4; transition: fill .5s, stroke .5s; }
+.map .mod.hot { stroke: var(--amber); fill: rgba(255, 171, 46, .07); }
+.map .mod.crit { stroke: var(--red); fill: rgba(255, 74, 74, .08); }
+.map .mod.dest { stroke: var(--argo); fill: rgba(197, 144, 255, .07); }
+.map .hatch { fill: #142030; stroke: #33445a; stroke-width: 1.2; }
+/* the plan is drawn in habitat.json units and scaled to about 0.67, so font sizes here are in those units */
+.map .hid { font: 600 14px var(--mono); fill: #6c7a8c; }
+.map .hid.on { fill: var(--argo); }
+.map .ml { font: 700 20px var(--cond); letter-spacing: .1em; fill: #9fb0c3; }
+.map .eq { font: 600 11px var(--mono); fill: #5f6d7e; }
+.map .eqbox { fill: none; stroke: #3a4a5e; stroke-width: 1; }
+.map .kit rect { fill: #142030; stroke: #8fa3b8; stroke-width: 1.4; transition: stroke .5s, fill .5s; }
+.map .kit path { stroke: #8fa3b8; stroke-width: 1.8; stroke-linecap: round; fill: none; }
+.map .kit.empty rect { stroke: var(--amber); fill: rgba(255, 171, 46, .1); stroke-dasharray: 3 2; }
+.map .kit.empty path { stroke: var(--amber); }
+.map .kit.lit rect { stroke: var(--argo); fill: rgba(197, 144, 255, .2); stroke-width: 2; }
+.map .kit.lit path { stroke: var(--argo); }
+.map .kl { font: 700 16px var(--cond); letter-spacing: .04em; fill: var(--soft); }
+.map .ks { font: 600 14px var(--mono); }
+.map .ks.amber { fill: var(--amber); }
+.map .ks.argo { fill: var(--argo); }
+.map .ks.dim { fill: #6c7a8c; }
+.map .cm { transition: transform 1s var(--ease); }
+.map .cm circle.c { fill: #1b2736; stroke: #8fa3b8; stroke-width: 1.4; }
+.map .cm text { font: 700 15px var(--mono); fill: #cfd8e3; text-anchor: middle; dominant-baseline: central; }
+.map .cm.sleep circle.c { stroke: #4b596a; }
+.map .cm.sleep text { fill: #6c7a8c; }
+.map .cm.awake circle.c { stroke: var(--green); }
+.map .cm.alarm circle.c { stroke: var(--amber); fill: #3a2a10; }
+.map .cm.alarm.red circle.c { stroke: var(--red); fill: #3a1414; }
+.map .cm.go circle.c { stroke: var(--argo); fill: #2a1a40; }
+.map .cm .ring { fill: none; stroke-width: 2; opacity: 0; }
+.map .cm.sleep circle.c { animation: breathe 4.6s ease-in-out infinite; }
+@keyframes breathe { 50% { stroke: #75869a; } }
+.map .cm.alarm .ring { stroke: var(--amber); animation: ping 1.6s ease-out infinite; }
+.map .cm.alarm.red .ring { stroke: var(--red); animation: ping 1.1s ease-out infinite; }
+@keyframes ping { 0% { r: 9px; opacity: .9; } 100% { r: 24px; opacity: 0; } }
+.map .route { fill: none; stroke: var(--argo); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.map .route.sec { stroke-width: 2.2; stroke-dasharray: 6 5; }
+.map .route-halo { fill: none; stroke: rgba(197, 144, 255, .22); stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; }
+.map .route-flow { fill: none; stroke: #f3e9ff; stroke-width: 3.4; stroke-linecap: round; stroke-dasharray: .1 15; animation: flow .8s linear infinite; }
+.map .route-flow.sec { stroke-width: 2.6; animation-duration: 1.1s; }
+@keyframes flow { to { stroke-dashoffset: -15.1; } }
+.map .kit.lit rect { animation: kitPulse 1.3s ease-in-out infinite; }
+@keyframes kitPulse { 50% { fill: rgba(197, 144, 255, .42); } }
+.map .wp { fill: var(--bg); stroke: var(--argo); stroke-width: 2; }
+.map .scale { stroke: #6c7a8c; stroke-width: 1.2; fill: none; }
+.map .scale-l { font: 13px var(--mono); fill: #6c7a8c; }
+.map .srcbox { fill: none; stroke: var(--argo); stroke-width: 2.5; }
+.map .cite-c { fill: var(--argo); stroke: var(--bg); stroke-width: 3; }
+.map .cite-t { font: 700 15px var(--mono); fill: #1b0b2e; text-anchor: middle; dominant-baseline: central; }
+.wf { position: absolute; left: 0; right: 0; bottom: 0; border-top: 1px solid var(--line); background: var(--panel-2); padding: 9px 14px; font-size: 14.5px; line-height: 1.35; transition: opacity .5s; }
+.wf .r1 { display: flex; gap: 10px; align-items: baseline; }
+.wf .r1 + .r1 { margin-top: 6px; }
+.wf .who { font-family: var(--cond); font-weight: 700; letter-spacing: .08em; width: 62px; flex: none; color: var(--argo); }
+.wf .who.s { color: #d9c2ff; }
+.wf .path { color: var(--text); }
+.wf .path i { font-style: normal; color: var(--muted); }
+.wf .m { margin-left: auto; font-family: var(--mono); font-size: 13px; color: var(--soft); white-space: nowrap; }
+
+.legend { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; display: flex; align-items: center; gap: 18px; padding: 0 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); transition: opacity .5s; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend svg { width: 15px; height: 15px; }
+.legend b { font-size: 11.5px; color: #8796a8; font-weight: 600; }
+
+/* ---------- Assessment (alert state) ---------- */
+.assess .body { padding: 6px 16px 10px; }
+.a-h { font-family: var(--cond); font-weight: 700; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
+.a-row { position: relative; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 10px; border-left: 3px solid var(--amber); background: rgba(255, 171, 46, .05); margin-top: 4px; font-size: 16px; color: var(--soft); }
+.a-row b { color: var(--text); font-weight: 600; }
+.a-row .a-s { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.a-row:nth-of-type(n+5) { border-left-color: var(--line-2); background: transparent; }
+.a-row.wait { border-left-color: var(--green); background: rgba(63, 220, 138, .05); }
+.a-row.wait .a-v { display: inline-flex; align-items: center; gap: 10px; }
+.pulse.ps { width: 10px; height: 10px; flex: none; animation-name: lis-sm; }
+@keyframes lis-sm { 0% { box-shadow: 0 0 0 0 rgba(63, 220, 138, .6); } 100% { box-shadow: 0 0 0 7px rgba(63, 220, 138, 0); } }
+.a-none { padding: 8px 10px; border: 1px dashed var(--line-2); border-radius: 4px; font-size: 15px; color: var(--muted); }
+
+/* ---------- Medical inventory (normal mode) ---------- */
+.inv table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.inv th { font-family: var(--cond); font-weight: 600; font-size: 12.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 14px 6px; }
+.inv td { padding: 9px 14px; border-top: 1px solid var(--line); color: var(--soft); white-space: nowrap; }
+.inv td.q { font-family: var(--mono); color: var(--text); }
+.inv td .s { font-size: 13.5px; }
+.inv .note { padding: 10px 14px; font-size: 13px; color: var(--dim); border-top: 1px solid var(--line); }
+
+/* ---------- Procedure (ECAM style) ---------- */
+.proc .body { padding: 12px 16px; }
+.p-title { font-family: var(--cond); font-weight: 700; font-size: 24px; letter-spacing: .04em; color: var(--red); text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 2px; }
+/* the title, cited by Argo: the violet box wraps the words and the underline instead of crossing them (Alex, Nov 9);
+   the words stay where they were */
+body:not(.phone) .p-title.src { width: fit-content; margin: -4px -12px -8px; padding: 4px 12px 10px; }
+.p-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.p-sig { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.p-sig span { font-size: 13.5px; padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(255, 171, 46, .4); background: var(--amber-bg); color: #ffd08a; }
+.p-sig span i { font-style: normal; color: var(--muted); margin-left: 4px; font-size: 12px; }
+.p-steps { list-style: none; margin-top: 8px; }
+.p-steps li { display: grid; grid-template-columns: 22px 1fr; column-gap: 8px; padding: 4px 8px; border-radius: 4px; font-family: var(--mono); font-size: 14px; color: var(--cyan); border: 1px solid transparent; }
+.p-steps li .sub { grid-column: 2; display: flex; justify-content: space-between; align-items: baseline; margin-top: 2px; }
+.p-steps li .k { color: var(--muted); }
+.p-steps li .ln { display: flex; gap: 6px; white-space: nowrap; overflow: hidden; }
+.p-steps li .ln .dots { flex: 1; overflow: hidden; color: #2f6b80; }
+.p-steps li .ln .dots::before { content: '..................................................................'; }
+.p-steps li .hint { font-family: var(--sans); font-size: 14px; color: var(--soft); }
+.p-steps li.now { background: rgba(62, 200, 242, .1); border-color: var(--cyan); }
+.p-steps li.now .ln { font-weight: 600; color: #8fe3ff; }
+.p-steps li.done { color: var(--green); }
+.p-steps li.done .ln .dots { color: #23593c; }
+.p-steps li.later { color: #5b7d8c; }
+.p-steps li .stt { font-family: var(--cond); font-weight: 700; font-size: 12.5px; letter-spacing: .12em; text-transform: uppercase; }
+.p-steps li.now .stt { color: var(--cyan); }
+.p-steps li.done .stt { color: var(--green); }
+.p-dont { margin-top: 10px; padding: 7px 10px; border: 1px solid rgba(255, 171, 46, .55); border-radius: 4px; color: #ffc46b; font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: .02em; }
+.p-disc { margin-top: 6px; font-size: 11.5px; color: var(--dim); }
+
+/* ---------- Report ---------- */
+.report .body { padding: 12px 16px; }
+.r-title { font-family: var(--cond); font-weight: 700; font-size: 22px; letter-spacing: .04em; }
+.r-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.r-list { list-style: none; margin-top: 8px; }
+.r-list li { display: grid; grid-template-columns: 120px 1fr; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 15px; }
+.r-list li span { font-family: var(--cond); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding-top: 2px; }
+.r-list li b { font-weight: 500; }
+.r-list li b em { font-style: normal; color: var(--amber); }
+.r-tx { margin-top: 10px; padding: 10px 12px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line-2); }
+.r-tx .row { display: flex; justify-content: space-between; font-size: 14px; color: var(--soft); }
+.r-tx .row b { font-family: var(--mono); font-weight: 600; color: var(--text); font-size: 18px; }
+.r-tx .k { font-family: var(--cond); font-weight: 700; font-size: 13px; letter-spacing: .14em; color: var(--argo); text-transform: uppercase; }
+.bar { height: 6px; border-radius: 3px; background: #1a2533; margin: 8px 0; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 64%; background: linear-gradient(90deg, rgba(197, 144, 255, .4), var(--argo)); }
+
+/* ---------- Transcript ---------- */
+.xs { position: absolute; left: 0; right: 0; top: 34px; bottom: 56px; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 18px 8px; overflow: hidden; }
+.xs::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 60px; background: linear-gradient(var(--panel), transparent); z-index: 2; }
+.xe { padding: 9px 0; border-bottom: 1px solid var(--line); }
+.xe:last-child { border-bottom: 0; }
+.xe .h { display: flex; gap: 10px; align-items: baseline; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+.xe .h b { font-family: var(--cond); font-weight: 700; font-size: 13px; letter-spacing: .14em; color: var(--argo); }
+.xe .h b.crew { color: var(--soft); }
+.xe .tx { font-size: 16px; line-height: 1.4; color: var(--soft); margin-top: 3px; transition: font-size .5s var(--ease), color .5s; }
+.xe.old .tx { color: var(--muted); }
+.xe.cur { padding-top: 14px; }
+.xe.cur .tx { font-size: 33px; line-height: 1.3; color: var(--text); font-weight: 500; letter-spacing: -.003em; }
+/* the whole line shows at once; a sweep marks the words as Argo speaks them. A word never parts from its citation
+   number or its punctuation at the end of a row (Alex, Nov 8, decision 35: rows began with "," or a number) */
+.xe.cur .w { opacity: .38; transition: opacity .18s; white-space: nowrap; }
+.xe.cur .w.said { opacity: 1; }
+.vr svg.live rect { transform-box: fill-box; transform-origin: center; animation: vBar .42s ease-in-out infinite alternate; }
+@keyframes vBar { from { transform: scaleY(.3); } to { transform: scaleY(1.15); } }
+.xe.cur .tx .cite { font-size: 14px; height: 24px; min-width: 24px; margin: 0 2px 0 4px; vertical-align: 4px; }
+.vr { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 14px; color: var(--soft); }
+.vr svg { width: 120px; height: 22px; }
+.vr i { font-style: normal; color: var(--muted); font-family: var(--mono); font-size: 12.5px; }
+.xs-foot { position: absolute; left: 0; right: 0; bottom: 0; height: 56px; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-top: 1px solid var(--line); background: var(--panel-2); font-family: var(--cond); font-weight: 600; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.xs-foot .ind { display: none; align-items: center; gap: 12px; }
+.xs-foot .ind.on { display: flex; }
+.xs-foot .listen { color: var(--text); }
+.pulse { width: 14px; height: 14px; border-radius: 50%; background: var(--green); animation: lis 1.3s ease-out infinite; }
+@keyframes lis { 0% { box-shadow: 0 0 0 0 rgba(63, 220, 138, .65); } 100% { box-shadow: 0 0 0 16px rgba(63, 220, 138, 0); } }
+.bars { display: flex; gap: 4px; align-items: center; height: 26px; }
+.bars i { width: 4px; height: 8px; border-radius: 2px; background: var(--argo); animation: eq 1s ease-in-out infinite; }
+.bars i:nth-child(2) { animation-delay: -.2s; } .bars i:nth-child(3) { animation-delay: -.45s; }
+.bars i:nth-child(4) { animation-delay: -.7s; } .bars i:nth-child(5) { animation-delay: -.35s; }
+@keyframes eq { 0%, 100% { height: 6px; } 50% { height: 24px; } }
+.xs-foot .speak { color: var(--argo); }
+.xs-foot .r { margin-left: auto; font-family: var(--mono); font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 13px; }
+
+/* ---------- Event log ---------- */
+.log .rows { position: absolute; left: 0; right: 0; top: 34px; bottom: 0; overflow: hidden; }
+.log .rows::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 50px; background: linear-gradient(transparent, var(--panel)); }
+.lr { display: grid; grid-template-columns: 76px 64px 1fr; gap: 8px; padding: 6px 14px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--soft); align-items: baseline; transition: opacity .5s; }
+.lr .tm { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.lr .cat { font-family: var(--cond); font-weight: 700; font-size: 12px; letter-spacing: .1em; color: var(--dim); }
+.lr.med .cat { color: var(--amber); }
+.lr.med.crit .cat { color: var(--red); }
+.lr.argo .cat { color: var(--argo); }
+.lr.ok .cat { color: var(--green); }
+.lr.new { background: rgba(255, 255, 255, .03); }
+.lr.old { opacity: .45; }
+.lr.plant .tx { color: var(--soft); }
+/* a new entry slides in (app.js) and glows briefly in its category color */
+.lr.fresh { --fl: rgba(230, 236, 243, .16); animation: fresh 2.8s ease-out; }
+.lr.fresh.med { --fl: rgba(255, 171, 46, .26); }
+.lr.fresh.med.crit { --fl: rgba(255, 74, 74, .3); }
+.lr.fresh.argo { --fl: rgba(197, 144, 255, .26); }
+.lr.fresh.ok { --fl: rgba(63, 220, 138, .22); }
+@keyframes fresh { 0%, 20% { background-color: var(--fl); } 100% { background-color: rgba(255, 255, 255, .03); } }
+
+/* ---------- Systems strip ---------- */
+.sys { position: absolute; left: 16px; right: 16px; top: 1022px; height: 46px; display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); transition: opacity var(--t), filter var(--t); }
+.sys .h { display: flex; align-items: center; padding: 0 16px; font-family: var(--cond); font-weight: 600; font-size: 13px; letter-spacing: .14em; color: var(--muted); border-right: 1px solid var(--line); }
+.sys .c { flex: 1; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); white-space: nowrap; }
+.sys .c:last-child { border-right: 0; }
+.sys .c .k { font-family: var(--cond); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.sys .c .v { font-family: var(--mono); font-size: 16px; color: var(--text); margin-left: auto; }
+.sys .c .v small { font-family: var(--sans); font-size: 12.5px; color: var(--muted); margin-left: 3px; }
+.sys.dimmed { opacity: .3; }
+
+/* ---------- Announcements: key moments, large, then settled into the banner or panel ---------- */
+.ann { position: absolute; inset: 0; z-index: 40; pointer-events: none; display: none; }
+.ann.on { display: block; }
+.ann-scrim { position: absolute; inset: 0; opacity: 0; background: radial-gradient(1300px 700px at 50% 50%, rgba(2, 4, 7, .58), rgba(2, 4, 7, .84)); }
+.ann.frozen .ann-scrim { opacity: 1; }
+.ann-box {
+  --c: var(--amber); --ink: #1e1200; --dk: #1a1000;
+  position: absolute; left: 16px; top: 352px; width: calc(var(--W) - 32px); height: 376px; border-radius: 8px; overflow: hidden;
+  transform-origin: 0 0; display: grid; place-items: center; text-align: center;
+  background-color: var(--c); color: var(--ink);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .1), 0 40px 140px rgba(0, 0, 0, .7), 0 0 160px rgba(255, 171, 46, .35);
+}
+.ann-box.warning { --c: var(--red); --ink: #ffffff; --dk: #2a0505; box-shadow: 0 0 0 1px rgba(255, 255, 255, .1), 0 40px 140px rgba(0, 0, 0, .7), 0 0 180px rgba(255, 74, 74, .45); }
+.ann-box.argo { --c: var(--argo); --ink: #f4ecff; background: linear-gradient(180deg, #1e1338, #100a1e); box-shadow: inset 0 0 0 3px var(--argo), 0 40px 140px rgba(0, 0, 0, .7), 0 0 150px rgba(197, 144, 255, .35); }
+/* hazard stripes along the top and bottom edges for caution and warning */
+.ann-box.caution::before, .ann-box.caution::after, .ann-box.warning::before, .ann-box.warning::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 20px;
+  background: repeating-linear-gradient(-45deg, rgba(20, 12, 0, .85) 0 16px, transparent 16px 32px);
+}
+.ann-box.warning::before, .ann-box.warning::after { background: repeating-linear-gradient(-45deg, rgba(40, 0, 0, .55) 0 16px, transparent 16px 32px); }
+.ann-box::before { top: 0; }
+.ann-box::after { bottom: 0; }
+/* annunciator flash: dark and bright in turn, two times for caution and three for warning */
+.ann-box.flash { animation: annFlash .36s steps(1, end) var(--n, 2); }
+@keyframes annFlash { 0% { background-color: var(--dk); color: var(--c); } 50% { background-color: var(--c); color: var(--ink); } }
+.ann-in { position: relative; z-index: 1; padding: 0 60px; }
+.ann-top { display: flex; justify-content: center; align-items: center; gap: 26px; font-family: var(--cond); font-weight: 700; font-size: 24px; letter-spacing: .2em; }
+.ann-lv { padding: 5px 14px 4px; border: 3px solid currentColor; border-radius: 4px; }
+.ann-tm { font-family: var(--mono); font-weight: 600; letter-spacing: .04em; }
+.ann-title { font-family: var(--cond); font-weight: 700; font-size: 176px; line-height: .95; letter-spacing: .03em; margin-top: 14px; white-space: nowrap; }
+.ann-sub { font-size: 38px; font-weight: 600; margin-top: 16px; }
+.ann-sub b { font-family: var(--mono); font-weight: 700; }
+.ann-box.go .ann-title { animation: annTrack .55s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes annTrack { from { letter-spacing: .24em; opacity: 0; } to { letter-spacing: .03em; opacity: 1; } }
+.ann-box.argo .ann-top { color: #d9c2ff; }
+/* uplink: a signal travelling from the ship to Earth */
+.ann-link { display: flex; align-items: center; justify-content: center; gap: 22px; margin-top: 24px; font-family: var(--cond); font-weight: 700; font-size: 20px; letter-spacing: .16em; color: #cdb4ff; }
+.ann-link.hide { display: none; }
+.ann-dots { display: flex; gap: 10px; }
+.ann-dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--argo); opacity: .18; animation: uplink 1.17s linear infinite; }
+@keyframes uplink { 0%, 100% { opacity: .18; transform: none; box-shadow: none; } 10% { opacity: 1; transform: scale(1.4); box-shadow: 0 0 12px var(--argo); } 28% { opacity: .18; transform: none; box-shadow: none; } }
+
+/* ---------- Toast: feedback for the sound keys (A, E, H) ---------- */
+.toast {
+  position: absolute; left: 50%; bottom: 74px; z-index: 60; transform: translate(-50%, 8px);
+  padding: 10px 18px; border-radius: 6px; background: rgba(13, 20, 29, .96); border: 1px solid var(--line-2); box-shadow: 0 12px 40px rgba(0, 0, 0, .6);
+  font-family: var(--cond); font-weight: 600; font-size: 17px; letter-spacing: .06em; color: var(--text); white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s var(--ease);
+}
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- Layout: normal mode ---------- */
+/* In a wider window the columns share the extra width (--X): normal mode crew 40%, plan and inventory 30%, voice log
+   and event log 30%; emergency mode crew 15%, patient monitor 55% (procedure or report and plan 27.5% each below
+   it), voice log and event log 30%. The right column stays put between the two modes. At 1920 wide, as before. */
+#crew { left: 16px; top: 140px; width: calc(820px + var(--X) * .4); height: 868px; }
+#plan { left: calc(852px + var(--X) * .4); top: 140px; width: calc(560px + var(--X) * .3); height: 424px; }
+#inv { left: calc(852px + var(--X) * .4); top: 580px; width: calc(560px + var(--X) * .3); height: 428px; }
+#xscript { left: calc(1428px + var(--X) * .7); top: 140px; width: calc(476px + var(--X) * .3); height: 420px; }
+#log { left: calc(1428px + var(--X) * .7); top: 576px; width: calc(476px + var(--X) * .3); height: 432px; }
+#monitor { left: calc(452px + var(--X) * .15); top: 140px; width: calc(960px + var(--X) * .55); height: 452px; }
+#proc, #report, #assess { left: calc(452px + var(--X) * .15); top: 608px; width: calc(464px + var(--X) * .275); height: 400px; }
+
+/* ---------- Layout: emergency mode ---------- */
+.emg #crew { width: calc(420px + var(--X) * .15); }
+.emg #plan { left: calc(932px + var(--X) * .425); width: calc(480px + var(--X) * .275); top: 608px; height: 400px; }
+.emg #xscript { height: 572px; }
+.emg #log { top: 728px; height: 280px; }
+
+/* ---------- Run from the keyboard (Nov 7) ---------- */
+/* Advisory: the alarm has cleared (all vitals back inside their limits) but the event is still being watched.
+   Cyan, as advisories are on a flight deck; the emergency view steps down to it, it does not snap back. */
+.banner.adv .b-main { background: #0d2631; color: #c9f1ff; box-shadow: inset 0 0 0 1px rgba(62, 200, 242, .45); }
+.banner.adv .b-level { color: var(--cyan); }
+.banner.adv .b-sep { opacity: .25; }
+/* The live heart rate in the matched-signal chip keeps the chip's look */
+.p-sig b { font-weight: inherit; }
+/* A line Argo stopped because the crew member was still talking (operator's undo): kept, marked, dimmed */
+.xe.cut .tx { color: var(--dim); }
+.xe .h .xcut { font-family: var(--cond); font-weight: 700; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+/* The mouse pointer hides when it rests, so nothing on the projector shows an operator */
+body.nocur, body.nocur * { cursor: none !important; }
+
+/* ---------- The calm-down step-down (Nov 7) ---------- */
+/* After epinephrine, once oxygen and breathing are back inside their limits, heart rate counts as the drug's
+   expected effect (procedure MED-07, limit 120): cyan like the advisory, not amber like an alarm */
+.num.exp .tag { background: var(--cyan); color: #03161d; }
+.num .lim b { font-weight: 600; color: var(--cyan); }
+.tr .th b.exp { color: var(--cyan); }
+/* Breathing: amber with a tag while above its limit, like heart rate and SpO2, so its return shows */
+.sm { transition: background .5s; }
+.sm .v { transition: color .5s; }
+.sm .tag { display: inline-block; margin-top: 7px; font-family: var(--cond); font-weight: 700; font-size: 12.5px; letter-spacing: .1em; padding: 2px 6px; border-radius: 3px; background: var(--amber); color: #201300; }
+.sm.al { background: var(--amber-bg); }
+.sm.rr.al .v { color: var(--amber); }
+.sm.ok .tag { background: var(--green); color: #04150b; }
+/* The patient's tile (Alex) once the event is an advisory: under observation, not an alarm */
+.tile.adv { box-shadow: inset 4px 0 0 var(--cyan); background: linear-gradient(90deg, rgba(62, 200, 242, .09), transparent 70%); }
+
+/* ---------- Scene 2: the patient's words under his voice entry, appearing as he says them, like subtitles ---------- */
+.xe .vw { margin-top: 6px; font-size: 18px; line-height: 1.38; color: var(--soft); }
+#xsLive .vw { color: var(--text); }
+.xe .vw .w { opacity: 0; transition: opacity .16s; }
+.xe .vw .w.said { opacity: 1; }
+.xe .vw .snd { font-family: var(--mono); font-size: 14px; letter-spacing: .02em; color: var(--muted); }
+
+/* ---------- The simulator strip (docs/05, decision 30) ----------
+   Outside the monitor, like the keys under a hospital monitor: the scenarios, Run, Full screen and the honesty line.
+   A slim bar at all times (Alex, Nov 8), so the monitor keeps as much of the window as it can. In real pixels (not
+   scaled with the stage), so it stays readable on any screen. States: pick (choose and run), run (the time, Stop,
+   sound and Full screen while a scenario plays), float (a run in full screen or on a phone held sideways: over the
+   bottom of the monitor, shown when the pointer moves or the screen is tapped), and on a screen held upright
+   (body.sim-tall) a panel under the monitor. Hidden in the presentation mode (the operator's word). */
+.sim {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+  display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 8px 20px;
+  font-family: var(--sans); color: var(--text); -webkit-font-smoothing: antialiased;
+  background: linear-gradient(180deg, #0d131b, #070a0f);
+  box-shadow: 0 -1px 0 var(--line-2), inset 0 1px 0 rgba(255, 255, 255, .04), 0 -20px 60px rgba(0, 0, 0, .5);
+  transition: opacity .3s, transform .35s var(--ease);
+}
+.sim[hidden], .sim [hidden] { display: none !important; }
+:where(.sim) button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.sim button:focus-visible { outline: 2px solid var(--argo); outline-offset: 3px; }
+.sim-lab { flex: none; font-family: var(--cond); line-height: 1.15; }
+.sim-lab small { display: block; font-size: 12.5px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: var(--argo); }
+.sim-lab b { display: none; font-size: 21px; font-weight: 600; color: var(--soft); white-space: nowrap; }
+.sim-list { display: flex; gap: 10px; min-width: 0; }
+.sim-sc {
+  display: flex; align-items: baseline; gap: 12px; min-width: 0; padding: 7px 14px; border-radius: 7px; text-align: left;
+  background: rgba(13, 20, 29, .95); box-shadow: inset 0 0 0 1.5px var(--line-2); transition: box-shadow .2s;
+}
+.sim-sc:hover { box-shadow: inset 0 0 0 1.5px #3a4a5e; }
+.sim-sc[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px var(--argo), 0 0 24px rgba(197, 144, 255, .14); }
+.sim-sc .id { font-family: var(--cond); font-weight: 700; font-size: 21px; line-height: 1.1; letter-spacing: .02em; white-space: nowrap; }
+.sim-sc { overflow: hidden; }   /* never spills out of its box: the small details shorten first (Alex, Nov 8) */
+.sim-sc .id { flex: none; }
+.sim-sc .tx { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.sim-sc .tx b { flex: none; font-size: 15px; font-weight: 600; white-space: nowrap; }
+.sim-sc .tx small { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.sim-sc .tx em { display: none; }
+.sim-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px; flex: none; border-radius: 7px;
+  font-family: var(--cond); font-weight: 700; text-transform: uppercase; letter-spacing: .14em; white-space: nowrap;
+}
+.sim-btn svg { width: 1.1em; height: 1.1em; flex: none; }
+.sim-run { font-size: 17px; padding: 9px 18px 9px 15px; color: #1b0b2e; background: var(--argo); animation: goPulse 2.4s ease-out infinite; }
+.sim-run svg { fill: currentColor; }
+.sim-run:hover, .sim-run:focus-visible { filter: brightness(1.1); }
+.sim-run:disabled { opacity: .45; cursor: default; animation: none; filter: none; }
+@keyframes goPulse { 0% { box-shadow: 0 0 0 0 rgba(197, 144, 255, .5); } 70%, 100% { box-shadow: 0 0 0 12px rgba(197, 144, 255, 0); } }
+.sim-ghost { font-size: 14px; padding: 8px 13px; color: var(--soft); box-shadow: inset 0 0 0 1.5px var(--line-2); transition: color .2s, box-shadow .2s; }
+.sim-ghost:hover { color: var(--text); box-shadow: inset 0 0 0 1.5px #3a4a5e; }
+.sim-ghost svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sim-stop svg rect { fill: currentColor; stroke: none; }
+.sim-snd .off, .sim-snd.muted .on, .sim-fs .off, .sim-fs.exit .on { display: none; }
+.sim-snd.muted .off, .sim-fs.exit .off { display: inline; }
+.sim.loading .sim-run svg { display: none; }   /* the button says "Loading voices…" until the voices are in */
+.sim-honest { margin: 0 0 0 auto; max-width: 520px; font-size: 14px; line-height: 1.3; text-align: right; color: var(--amber); }
+.sim-hint { display: none; margin: 0; }
+
+/* run: the time, a progress line, Stop, sound and Full screen */
+.sim-state, .sim-prog, .sim-stop, .sim-snd { display: none; }
+.sim[data-state="run"] :is(.sim-lab, .sim-list, .sim-run) { display: none; }
+.sim[data-state="run"] .sim-state { display: flex; }
+.sim[data-state="run"] .sim-prog { display: block; }
+.sim[data-state="run"] :is(.sim-stop, .sim-snd) { display: inline-flex; }
+.sim-state { align-items: center; gap: 12px; font-family: var(--cond); font-weight: 700; font-size: 17px; letter-spacing: .16em; text-transform: uppercase; color: var(--soft); white-space: nowrap; }
+.sim-state i { width: 10px; height: 10px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px rgba(255, 74, 74, .8); animation: simRec 1.6s ease-in-out infinite; }
+.sim-state b { color: var(--text); font-weight: 700; }
+.sim-state .t { font-family: var(--mono); font-weight: 500; letter-spacing: .02em; color: var(--text); }
+@keyframes simRec { 50% { opacity: .3; } }
+.sim-prog { position: relative; flex: 1; min-width: 60px; height: 4px; border-radius: 2px; overflow: hidden; background: var(--line-2); }
+.sim-prog b { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 2px; background: var(--argo); transition: width 1s linear; }
+
+/* float: over the bottom of the monitor, shown for a few seconds when the pointer moves or the screen is tapped */
+.sim.float { opacity: 0; transform: translateY(100%); pointer-events: none; background: linear-gradient(180deg, rgba(13, 19, 27, .93), rgba(7, 10, 15, .97)); }
+.sim.float.peek { opacity: 1; transform: none; pointer-events: auto; }
+
+/* narrower windows: the honesty line wraps, then the label and the scenario's details give way */
+@media (max-width: 1499px) { .sim-honest { max-width: 300px; } }
+@media (max-width: 1279px) { .sim-lab { display: none; } .sim { gap: 12px; padding-inline: 14px; } }
+@media (max-width: 1149px) { .sim-sc .tx small { display: none; } .sim-honest { max-width: 240px; font-size: 13px; } }
+@media (max-width: 999px) {
+  .sim { flex-wrap: wrap; }
+  .sim-honest { order: 9; flex-basis: 100%; max-width: none; margin-left: 0; text-align: left; }
+}
+/* short screens (a phone held sideways): compact, one row, Full screen and sound as icons */
+@media (max-height: 559px) {
+  .sim { min-height: 0; flex-wrap: nowrap; gap: 10px; padding-block: 6px; }
+  .sim-lab, .sim-sc .tx small { display: none; }
+  .sim-sc { gap: 8px; padding: 5px 10px; }
+  .sim-sc .id { font-size: 18px; }
+  .sim-sc .tx b { font-size: 13px; }
+  .sim-run { gap: 7px; font-size: 15px; padding: 8px 12px; }
+  .sim-ghost { font-size: 13px; padding: 8px 10px; }
+  .sim-fs span, .sim-snd span { display: none; }
+  .sim-state { gap: 8px; font-size: 14px; }
+  .sim-honest { order: 0; flex-basis: auto; max-width: 210px; margin-left: auto; font-size: 12px; text-align: right; }
+}
+
+/* a screen held upright (a phone): the monitor across the top, the strip as a panel under it (app.js sets its top) */
+body.sim-tall .sim {
+  bottom: 0; flex-direction: column; flex-wrap: nowrap; align-items: stretch; justify-content: flex-start; gap: 14px;
+  min-height: 0; padding: 18px 16px 24px; overflow-y: auto; box-shadow: 0 -1px 0 var(--line-2);
+}
+body.sim-tall .sim-lab, body.sim-tall .sim-lab b { display: block; }
+body.sim-tall .sim-list { flex-direction: column; }
+body.sim-tall .sim-sc { flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px 16px; }
+body.sim-tall .sim-sc .id { font-size: 30px; }
+body.sim-tall .sim-sc .tx { display: block; }
+body.sim-tall .sim-sc .tx b { display: block; font-size: 18px; white-space: normal; }
+body.sim-tall .sim-sc .tx small { display: block; margin-top: 2px; font-size: 14px; white-space: normal; }
+body.sim-tall .sim-sc .tx em { display: block; margin-top: 8px; font-size: 15px; font-style: normal; line-height: 1.45; color: var(--soft); }
+body.sim-tall .sim-run { font-size: 20px; padding-block: 16px; }
+body.sim-tall .sim-ghost { font-size: 15px; padding: 13px 16px; }
+body.sim-tall .sim-hint { display: block; font-size: 14px; color: var(--muted); }
+body.sim-tall .sim-honest { order: 0; flex-basis: auto; max-width: none; margin: 0; font-size: 14px; text-align: left; }
+body.sim-tall .sim[data-state="run"] { gap: 12px; padding-block: 16px; }
+body.sim-tall .sim-prog { flex: none; }
+body.sim-tall .sim-state { font-size: 16px; }
+
+/* ---------- The phone layout (Alex, Nov 8; docs/05 decision 32) ----------
+   On a phone-sized screen (app.js, fit) the stage is no longer the 16:9 monitor scaled down: the same panels are laid
+   out for the phone, in a grid at the phone's own size, so nothing on them changes but their place and size. Upright:
+   the status bar with the honesty line, the alarm line (the memo, or the banner and the Earth clocks), his vitals, the
+   page keys, one page at a time (the assessment or the checklist, the map, the report, the crew, the event log; it
+   follows Argo, app.js, pages), and Argo's voice log at the bottom. Sideways: two columns, the alarm, clocks and vitals
+   on the left, the page keys, the page and the voice log on the right. The simulator strip stays outside the monitor,
+   at the bottom. --sh is the stage's height in px (app.js). Laptops, projectors and the presentation mode never get
+   body.phone, so everything above is unchanged for them. */
+.pkeys { display: none; }
+body.phone .stage {
+  left: 0; top: 0 !important; width: 100%; height: 100%; transform: none; transition: none;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 0 6px 6px;
+  grid-template-areas: "bar" "alarm" "keys" "page"; grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+body.phone .stage.emg { grid-template-areas: "bar" "alarm" "vit" "keys" "page" "voice"; grid-template-rows: auto auto auto auto minmax(0, 1fr) auto; }
+body.phone .stage > :is(.sbar, .aline, .pkeys),
+body.phone :is(#crew, #plan, #inv, #xscript, #log, #monitor, #proc, #report, #assess) {
+  position: relative; left: auto; top: auto; right: auto; bottom: auto; width: auto; height: auto; min-width: 0; min-height: 0;
+}
+body.phone .sys, body.phone .sim-hint { display: none !important; }
+body.phone .sbar { grid-area: bar; }
+body.phone .aline { grid-area: alarm; }
+body.phone #monitor { grid-area: vit; }
+body.phone .pkeys { grid-area: keys; display: flex; gap: 4px; container-type: inline-size; }
+body.phone :is(#assess, #proc, #report, #plan, #crew, #log, #inv) { grid-area: page; }
+body.phone #xscript { grid-area: voice; }
+body.phone .stage:not(.emg) :is(#monitor, #xscript, #assess, #proc, #report), body.phone .stage.emg #inv { display: none; }
+/* one page at a time: the one Argo is talking about, or the one the visitor tapped (app.js sets data-page) */
+body.phone :is(#assess, #proc, #report, #plan, #crew, #log, #inv) { visibility: hidden; opacity: 0; transition: opacity .35s; }
+body.phone .stage[data-page="assess"] #assess, body.phone .stage[data-page="proc"] #proc, body.phone .stage[data-page="report"] #report,
+body.phone .stage[data-page="plan"] #plan, body.phone .stage[data-page="crew"] #crew, body.phone .stage[data-page="log"] #log,
+body.phone .stage[data-page="inv"] #inv { visibility: visible; opacity: 1; }
+/* page keys, like the keys beside a cockpit display; the violet dot marks the page Argo is on */
+.pk {
+  position: relative; flex: 1 1 0; min-width: 0; height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px;
+  border-radius: 4px; background: var(--panel); border: 1px solid var(--line-2); color: var(--muted); cursor: pointer;
+  font: 700 10.5px/1 var(--cond); letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.pk.on { color: var(--text); border-color: #3a4a5e; background: #111a25; box-shadow: inset 0 2px 0 var(--argo); }
+.pk.auto::before { content: ''; position: absolute; left: 4px; top: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--argo); box-shadow: 0 0 6px var(--argo); }
+.pk:disabled { opacity: .35; cursor: default; }
+.pk:focus-visible { outline: 2px solid var(--argo); outline-offset: 2px; }
+
+/* status bar: ARGO, ship time, the Earth delay and the alarms in one row, the honesty line under it */
+body.phone .sbar { margin: 0 -6px; height: auto; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "brand time earth alarm" "proto proto proto proto"; }
+body.phone .sb { padding: 5px 10px 4px; }
+body.phone .sb .k { font-size: 9px; letter-spacing: .14em; }
+body.phone .sb .v { font-size: 13px; margin-top: 0; }
+body.phone .sb-brand { grid-area: brand; gap: 8px; padding-left: 10px; }
+body.phone .logo { width: 18px; height: 18px; }
+body.phone .logo::after { inset: 5px; }
+body.phone .wm { font-size: 15px; letter-spacing: .28em; }
+body.phone .disp, body.phone .sbar > .sb:nth-child(2), body.phone .sbar > .sb:nth-child(5), body.phone .sb-snd { display: none; }
+body.phone .sb-time { grid-area: time; }
+body.phone .sb-time .v { font-size: 15px; }
+body.phone .sbar > .sb:nth-child(4) { grid-area: earth; }
+body.phone .sbar > .sb:nth-child(4) .v { font-size: 0; }   /* the Earth link shows only its one-way delay */
+body.phone .sbar > .sb:nth-child(4) .v b { font-size: 14px; font-weight: 500; }
+body.phone .sbar > .sb:nth-child(4) .led { width: 7px; height: 7px; margin-right: 6px; vertical-align: 2px; }
+body.phone .sb-alarm { grid-area: alarm; min-width: 0; border-right: 0; padding-inline: 12px; }
+body.phone .sb-alarm .v { font-size: 15px; }
+body.phone .sb-proto { grid-area: proto; margin: 0; padding: 4px 8px; border-right: 0; border-top: 1px solid var(--line); align-items: center; }
+body.phone .sb-proto span { display: inline-block; font-size: 9px; letter-spacing: .16em; padding: 2px 8px; }
+
+/* alarm line: the memo, or the banner over the Earth clocks */
+body.phone .aline { display: grid; gap: 6px; }
+body.phone .aline > * { min-width: 0; }
+body.phone .memo { position: relative; inset: auto; height: auto; flex-wrap: wrap; gap: 2px 12px; padding: 7px 10px; }
+body.phone .memo .no { font-size: 12.5px; }
+body.phone .memo .m { font-size: 12px; }
+body.phone .memo .m:nth-child(2), body.phone .memo .m:nth-child(n+4) { display: none; }
+body.phone .memo .m:nth-child(3) { flex-basis: 100%; }
+body.phone .memo.hide, body.phone .banner.hide { display: none; }
+body.phone .banner { position: relative; inset: auto; right: 0 !important; }
+body.phone .b-main { flex-wrap: wrap; align-content: center; gap: 0 9px; padding: 5px 10px 6px; }
+body.phone .b-title { order: 1; flex: 1 1 auto; min-width: 0; font-size: 17px; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; }
+body.phone .b-snd { order: 2; margin-left: auto; font-size: 0; gap: 0; }
+body.phone .b-snd svg { width: 17px; height: 17px; }
+body.phone .b-level { order: 3; margin-left: 0; font-size: 10.5px; padding: 2px 6px; border-width: 1.5px; }
+body.phone .b-snd.off + .b-level { margin-left: auto; }
+body.phone .b-sep { display: none; }
+body.phone .b-meta { order: 4; font-size: 10.5px; font-weight: 600; white-space: normal; line-height: 1.25; }
+body.phone .b-meta small { display: inline; font-size: 9px; margin-right: 4px; }
+body.phone #bWhy { order: 5; }
+body.phone .clocks { position: relative; inset: auto; display: flex; gap: 6px; }
+body.phone .clocks:not(:has(.clock:not(.off))) { display: none; }
+body.phone .clock { flex: 1 1 0; width: auto; min-width: 0; height: auto; padding: 5px 8px 4px; margin: 0; }
+body.phone .clock.off { display: none; }
+body.phone .clock .k { font-size: 9px; letter-spacing: .06em; overflow: hidden; text-overflow: ellipsis; }
+body.phone .clock .v { font-size: 19px; line-height: 1.15; }
+body.phone .clock.src .k { padding-right: 18px; }
+
+/* his vitals: two wave rows with their numbers, breathing and temperature under them; the rows grow with the phone */
+body.phone #monitor .ph, body.phone .trends, body.phone .num .lim, body.phone .num .pbar { display: none; }
+/* the numbers' column at least 150 px wide, so on a 320 px phone the tags under HR and SpO2 (BELOW BASELINE · FALLING)
+   take two lines at most and stay inside their cells (Nov 8) */
+body.phone .mon { --vr: clamp(42px, calc(var(--sh, 600px) * .08), 60px); height: auto; grid-template-columns: minmax(0, 1fr) max(44%, 150px); grid-template-rows: var(--vr) var(--vr) auto; }
+body.phone .side { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
+body.phone .sm { padding: 3px 10px; border-bottom: 0; }
+body.phone .sm + .sm { border-left: 1px solid var(--line); }
+body.phone .sm .lab { font-size: 11px; display: flex; align-items: center; gap: 6px; }
+body.phone .sm .lab small { display: none; }
+body.phone .sm .tag { margin: 0; font-size: 9px; padding: 1px 4px; }
+body.phone .sm .v { font-size: 19px; }
+body.phone .wave .wl { font-size: 9.5px; left: 4px; top: 3px; padding: 0 4px; }
+body.phone .num .lab { left: 8px; top: 5px; font-size: 11.5px; }
+body.phone .num .lab small { font-size: 9.5px; }
+body.phone .num .lab .heart { width: 11px; height: 11px; margin-left: 5px; }
+body.phone .num .big { right: 9px; font-size: calc(var(--vr) * .84); }
+body.phone .num .tag { left: 8px; top: 23px; bottom: auto; max-width: calc(100% - 24px - var(--vr) * .84); font-size: 8.5px; letter-spacing: .05em; padding: 1px 4px; line-height: 1.25; }
+body.phone .num > .cite.pin { left: auto !important; right: 58px !important; top: 6px !important; }
+body.phone .num.src::after { inset: 0; }   /* line 1's violet boxes on the cells' edges, clear of the two-line tag */
+body.phone .cite { font-size: 10px; height: 16px; min-width: 16px; padding: 0 3px; border-radius: 8px; }
+body.phone .src > .cite.pin { top: 4px; right: 6px; box-shadow: 0 0 0 2px var(--bg); }
+
+/* the pages: smaller type; a page that holds more than fits scrolls inside, to what Argo cites (app.js, showSources) */
+body.phone .panel .ph { height: 26px; padding: 0 10px; gap: 8px; }
+body.phone .panel .ph .t { font-size: 11px; letter-spacing: .12em; }
+body.phone .panel .ph .r { font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+body.phone .panel .ph .r .led { width: 7px; height: 7px; margin-right: 5px; }
+body.phone :is(#assess, #proc, #report) { display: flex; flex-direction: column; }
+body.phone :is(#assess, #proc, #report) .body { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+body.phone :is(#assess, #proc, #report) .body::-webkit-scrollbar { display: none; }
+/* the crew: each person keeps their full height; when they do not all fit (during the scenario, or on a short phone)
+   the list scrolls with the thumb instead of squeezing them on top of each other (Alex, Nov 8) */
+body.phone .crew .list { position: relative; height: calc(100% - 26px); grid-template-rows: repeat(4, minmax(min-content, 1fr)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+body.phone .crew .list::-webkit-scrollbar { display: none; }
+body.phone .tile { grid-template-columns: 40px minmax(0, 1fr); gap: 10px; padding: 5px 10px; align-items: center; }
+body.phone .portrait { width: 40px; height: 50px; }
+body.phone .t-body { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+body.phone .t-id { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: baseline; min-width: 0; }
+body.phone .t-id .nm { font-size: 16px; }
+body.phone .t-id .rl { font-size: 11px; margin-top: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.phone .t-id .loc { font-size: 9.5px; margin-top: 3px; }
+body.phone .t-id .st { font-size: 11px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.phone .t-id .resp { grid-column: 1 / -1; }
+body.phone .t-id .sn, body.phone .spk, body.phone .mv .n small, body.phone .mv .bl { display: none; }
+body.phone .t-vit { grid-template-columns: repeat(3, auto); gap: 8px; }
+body.phone .mv { padding-left: 6px; }
+body.phone .mv .l { font-size: 9px; letter-spacing: .1em; }
+body.phone .mv .n { font-size: 18px; }
+body.phone .emg .crew .tile .resp { font-size: 12px; margin-top: 3px; }
+body.phone .assess .body { padding: 2px 10px 6px; }
+body.phone .a-h { font-size: 9.5px; margin: 6px 0 2px; }
+body.phone .a-row { font-size: 12.5px; padding: 3px 8px; margin-top: 2px; }
+body.phone .a-row .a-s { font-size: 9.5px; }
+body.phone .a-none { font-size: 11.5px; padding: 4px 8px; }
+body.phone .proc .body { padding: 6px 10px; }
+/* the procedure's title, cited in line 3: room around the words inside it, so the violet box wraps the words and the
+   underline instead of crossing them (Alex, Nov 8); the words stay where they were */
+body.phone .p-title { font-size: 16px; text-underline-offset: 3px; width: fit-content; margin: -4px -8px -2px; padding: 2px 8px 9px; }
+body.phone .p-sig { gap: 4px; margin-top: 5px; }
+body.phone .p-sig span { font-size: 11px; padding: 1px 5px; }
+body.phone .p-sig span i { display: none; }
+body.phone .p-sig span.src::after { inset: -1px; }   /* the violet box on the chip's own border, clear of its words */
+body.phone .p-steps { margin-top: 5px; }
+body.phone .p-steps li { font-size: 11px; padding: 2px 6px; grid-template-columns: 14px 1fr; column-gap: 4px; }
+body.phone .p-steps li.src::after { inset: -1px; }   /* lines 6 and 7: the violet box on the step's own border, clear of its words */
+body.phone .p-steps li .hint { font-size: 11.5px; }
+body.phone .p-steps li .stt { font-size: 9.5px; }
+body.phone .p-dont { margin-top: 5px; padding: 4px 8px; font-size: 10px; }
+body.phone .report .body { padding: 6px 10px; }
+body.phone .r-title { font-size: 15px; }
+body.phone .r-sub { font-size: 10px; }
+body.phone .r-list { margin-top: 4px; }
+body.phone .r-list li { grid-template-columns: 74px minmax(0, 1fr); gap: 8px; padding: 3px 0; font-size: 12px; }
+body.phone .r-list li span { font-size: 9.5px; }
+/* the trigger row, cited in line 8: its violet box reaches past the row's sides, clear of the words; nothing moves */
+body.phone .r-list li.src::after { inset: -2px -6px; }
+body.phone .r-tx { margin-top: 5px; padding: 5px 8px; }
+body.phone .r-tx .k { font-size: 10px; }
+body.phone .r-tx .row { font-size: 11.5px; }
+body.phone .r-tx .row b { font-size: 14px; }
+body.phone .r-tx .bar { margin: 4px 0; height: 5px; }
+/* the plan: during the guidance only the part with the route (app.js sets the map's viewBox) */
+body.phone #plan { display: flex; flex-direction: column; }
+body.phone #plan > :is(.ph, .wf, .legend) { position: relative; flex: none; left: auto; right: auto; bottom: auto; }
+body.phone #plan > .hide { display: none; }
+body.phone .plan svg.map { position: relative; top: auto; height: auto; flex: 1 1 0; min-height: 0; }
+/* a short phone (an iPhone in Safari) drops the plan's title row, and the plan's labels never draw smaller than about 9 px
+   (app.js sets --ms, the scale the plan is drawn at), so the kit, the locker and "used day 112" stay readable */
+body.phone.short #plan .ph, body.phone:is(.short, .side) :is(.r-sub, .r-list li:last-child) { display: none; }
+body.phone .map .ml { font-size: clamp(20px, calc(11px / var(--ms, 1)), 25px); }
+body.phone .map .kl { font-size: clamp(16px, calc(8.5px / var(--ms, 1)), 20px); }
+body.phone .map .ks { font-size: clamp(14px, calc(8.5px / var(--ms, 1)), 20px); }
+body.phone .map .hid { font-size: clamp(14px, calc(8px / var(--ms, 1)), 18px); }
+body.phone .wf { padding: 5px 10px; font-size: 11.5px; }
+body.phone .wf .r1 + .r1 { margin-top: 3px; }
+body.phone .wf .who { width: 46px; }
+body.phone .wf .m { font-size: 10.5px; }
+body.phone .legend { height: 26px; gap: 10px; padding: 0 10px; font-size: 10.5px; overflow: hidden; }
+body.phone .legend svg { width: 11px; height: 11px; }
+body.phone .legend b { font-size: 9.5px; }
+body.phone .inv table { font-size: 12px; }
+body.phone .inv th { font-size: 9.5px; padding: 6px 8px 4px; }
+body.phone .inv td { padding: 5px 8px; white-space: normal; }
+body.phone .inv td .s { font-size: 11px; }
+body.phone .inv .note { padding: 6px 8px; font-size: 11px; }
+body.phone .lr { grid-template-columns: 60px 44px minmax(0, 1fr); gap: 6px; padding: 4px 10px; font-size: 12px; }
+body.phone .lr .tm { font-size: 10.5px; }
+body.phone .lr .cat { font-size: 9.5px; }
+body.phone .log .rows { top: 26px; }
+
+/* Argo's voice log: who is speaking in its header (Speaking, Listening · Alex), the current line large */
+body.phone #xscript { height: clamp(128px, calc(var(--sh, 600px) * .23), 196px); }
+body.phone #xscript .ph .r, body.phone .xs-foot .r { display: none; }
+body.phone .xs { top: 26px; bottom: 0; padding: 0 10px 6px; }
+body.phone .xs::before { height: 12px; }
+body.phone .xe { padding: 4px 0; }
+body.phone .xe .h { font-size: 10px; gap: 6px; }
+body.phone .xe .h b { font-size: 10.5px; }
+body.phone .xe .tx { font-size: 12.5px; line-height: 1.35; margin-top: 1px; }
+body.phone .xe.cur { padding-top: 6px; }
+body.phone .xe.cur .tx { font-size: 16px; line-height: 1.28; }
+body.phone .xe.cur .tx .cite { font-size: 10px; height: 16px; min-width: 16px; margin: 0 1px 0 2px; vertical-align: 2px; }
+body.phone .vr { gap: 6px; font-size: 11.5px; margin-top: 2px; }
+body.phone .vr svg { width: 70px; height: 14px; }
+body.phone .vr i { font-size: 10.5px; }
+body.phone .xe .vw { font-size: 14px; margin-top: 2px; }
+body.phone .xe .vw .snd { font-size: 11px; }
+body.phone .xs-foot { top: 0; bottom: auto; left: auto; height: 26px; padding: 0 10px; font-size: 11px; gap: 8px; border: 0; background: none; }
+body.phone .pulse { width: 10px; height: 10px; }
+body.phone .bars { height: 16px; gap: 3px; }
+body.phone .bars i { width: 3px; animation-name: eqPhone; }
+@keyframes eqPhone { 0%, 100% { height: 4px; } 50% { height: 15px; } }
+
+/* the announcements: a band across the phone, then it settles into the banner, clocks or report as on the big screen */
+body.phone .ann-box { left: 8px; top: calc(50% - 104px); width: calc(100% - 16px); height: 208px; }
+body.phone .ann-in { padding: 0 12px; }
+body.phone .ann-top { font-size: 11px; gap: 4px 10px; letter-spacing: .12em; flex-wrap: wrap; }
+body.phone .ann-lv { padding: 2px 6px 1px; border-width: 2px; }
+body.phone .ann-title { font-size: min(46px, 11vw); margin-top: 10px; letter-spacing: .02em; }
+body.phone .ann-box.argo .ann-title { font-size: min(40px, 9.6vw); }
+body.phone .ann-box.warning .ann-title { font-size: min(72px, 17vw); }
+body.phone .ann-sub { font-size: 14px; margin-top: 10px; line-height: 1.35; }
+body.phone .ann-link { margin-top: 12px; font-size: 9.5px; gap: 8px; letter-spacing: .1em; }
+body.phone .ann-dots { gap: 4px; }
+body.phone .ann-dots i { width: 5px; height: 5px; }
+body.phone .ann-dots i:nth-child(n+11) { display: none; }
+body.phone .ann-box.caution::before, body.phone .ann-box.caution::after { height: 10px; background: repeating-linear-gradient(-45deg, rgba(20, 12, 0, .85) 0 8px, transparent 8px 16px); }
+body.phone .ann-box.warning::before, body.phone .ann-box.warning::after { height: 10px; background: repeating-linear-gradient(-45deg, rgba(40, 0, 0, .55) 0 8px, transparent 8px 16px); }
+
+/* the strip on a phone held upright: a panel before the run (Run and full screen side by side), a slim bar during it,
+   and after it a short panel with Run again */
+body.phone.sim-tall .sim { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 10px 12px 12px; }
+body.phone.sim-tall .sim > :not(.sim-run):not(.sim-fs) { grid-column: 1 / -1; }
+body.phone.sim-tall .sim:has(.sim-fs[hidden]) .sim-run { grid-column: 1 / -1; }
+body.phone.sim-tall .sim-fs { padding: 0 16px; }
+body.phone.sim-tall .sim-fs span { display: none; }
+body.phone.sim-tall .sim-lab { display: flex; align-items: baseline; gap: 10px; }
+body.phone.sim-tall .sim-lab small { font-size: 11px; }
+body.phone.sim-tall .sim-lab b { font-size: 14px; }
+body.phone.sim-tall .sim-sc { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: baseline; padding: 10px 12px; }
+body.phone.sim-tall .sim-sc .tx { display: contents; }
+body.phone.sim-tall .sim-sc .id { font-size: 20px; }
+body.phone.sim-tall .sim-sc .tx b { font-size: 15px; }
+body.phone.sim-tall .sim-sc .tx :is(small, em) { grid-column: 1 / -1; }
+body.phone.sim-tall .sim-sc .tx small { font-size: 12.5px; }
+body.phone.sim-tall .sim-sc .tx em { font-size: 13px; margin-top: 5px; line-height: 1.4; }
+body.phone.sim-tall .sim-run { font-size: 17px; padding-block: 12px; }
+body.phone.sim-tall .sim-honest { font-size: 12px; }
+/* after a run: one slim row, the scenario and Run again (the honesty mark stays in the status bar) */
+body.phone .sim.done { flex-wrap: nowrap; gap: 8px; min-height: 0; padding: 6px 8px; }
+body.phone .sim.done :is(.sim-lab, .sim-honest, .sim-sc .tx small, .sim-sc .tx em) { display: none; }
+body.phone .sim.done .sim-list { flex: 1 1 auto; min-width: 0; }
+body.phone .sim.done .sim-sc { flex: 1 1 auto; padding: 6px 10px; }
+body.phone .sim.done .sim-sc .id { font-size: 17px; }
+body.phone .sim.done .sim-sc .tx { min-width: 0; overflow: hidden; }
+body.phone .sim.done .sim-sc .tx b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+body.phone .sim.done .sim-run { font-size: 15px; padding: 9px 13px 9px 11px; }
+body.phone .sim.done .sim-fs { padding: 8px 10px; }
+body.phone .sim.done .sim-fs span { display: none; }
+body.phone .sim[data-state="run"] { flex-wrap: nowrap; gap: 8px; min-height: 0; padding: 5px 8px; }
+body.phone .sim[data-state="run"] .sim-honest { display: none; }
+body.phone .sim[data-state="run"] .sim-ghost { font-size: 12px; padding: 7px 10px; }
+body.phone .sim[data-state="run"] :is(.sim-snd, .sim-fs) span { display: none; }
+body.phone .sim-state { font-size: 0; gap: 7px; letter-spacing: .1em; }   /* the dot, the scenario and the time; the word Running goes */
+body.phone .sim-state :is(b, .t) { font-size: 13px; }
+body.phone .sim-prog { min-width: 24px; }
+body.phone .sim-state i { width: 8px; height: 8px; }
+
+/* sideways: two columns. Calm: the crew on the left, the page keys and a page (the map first) on the right. During
+   a run: the banner, clocks and vitals on the left, the page and the voice log on the right; the strip hides until
+   the screen is tapped (app.js, peek), as before. */
+body.phone.side .stage { gap: 5px 6px; grid-template-columns: minmax(0, 46fr) minmax(0, 54fr); grid-template-areas: "bar bar" "alarm keys" "crew page"; grid-template-rows: auto auto minmax(0, 1fr); }
+body.phone.side .stage.emg { grid-template-areas: "bar bar" "alarm keys" "alarm page" "vit page" "vit voice"; grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+body.phone.side #crew { grid-area: crew; visibility: visible; opacity: 1; }
+body.phone.side .stage.emg #crew { grid-area: page; visibility: hidden; opacity: 0; }
+body.phone.side .stage.emg[data-page="crew"] #crew { visibility: visible; opacity: 1; }
+body.phone.side .sbar { grid-template-columns: auto minmax(0, 1fr) auto auto auto; grid-template-areas: "brand proto time earth alarm"; }
+body.phone.side .sb-proto { border-top: 0; padding: 0 10px; align-self: center; }
+body.phone.side .memo .m, body.phone.side .t-id .st, body.phone.side .t-id .loc, body.phone.side .mv .l { display: none; }
+body.phone.side .tile { padding: 2px 10px; grid-template-columns: 28px minmax(0, 1fr); }
+body.phone.side .portrait { width: 28px; height: 34px; }
+body.phone.side #monitor { min-height: 0; }
+body.phone.side .mon { --vr: 46px; height: 100%; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) auto; }
+body.phone.side #xscript { height: 116px; }
+body.phone.side .xe.cur .tx { font-size: 14.5px; }
+body.phone.side #plan .ph, body.phone.side #plan .wf { display: none; }
+body.phone.side .ann-box { left: 10%; top: calc(50% - 92px); width: 80%; height: 184px; }
+body.phone.side .ann-title { font-size: 54px; margin-top: 6px; }
+body.phone.side .ann-box.argo .ann-title { font-size: 46px; }
+body.phone.side .ann-box.warning .ann-title { font-size: 66px; }
+
+/* page keys in a narrow row (a narrow phone, or the right column of a small phone held sideways) */
+@container (max-width: 330px) { .pk { font-size: 9.5px; letter-spacing: .03em; } }
+/* a small phone held sideways: a taller voice log, so Argo's longest lines fit in the narrower column */
+@media (max-width: 680px) { body.phone.side #xscript { height: 132px; } body.phone.side .xe.cur .tx { font-size: 14px; } }
+/* the shortest phones (an iPhone SE in Safari, under 600 px high): the banner keeps its title and level only, the page
+   keys go (the page still follows Argo), the plan fills its page without the route rows, and the voice log gives the
+   page a little more room */
+body.phone.tiny :is(.b-meta, .pkeys, #plan .wf) { display: none; }
+body.phone.tiny #xscript { height: 118px; }
+body.phone.tiny .xe.cur .tx { font-size: 14.5px; }
+body.phone.tiny .stage { grid-template-areas: "bar" "alarm" "page"; grid-template-rows: auto auto minmax(0, 1fr); }
+body.phone.tiny .stage.emg { grid-template-areas: "bar" "alarm" "vit" "page" "voice"; grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+body.phone.tiny .mon { --vr: 40px; }
+/* in the 40 px rows the label and the tag sit a little tighter, so a tag on two lines (BELOW BASELINE · FALLING)
+   stays inside its cell and clear of the violet box (Nov 8) */
+body.phone.tiny .num .lab { top: 2px; font-size: 10.5px; }
+body.phone.tiny .num .tag { top: 16px; font-size: 8px; line-height: 1.12; }
+body.phone.tiny .clock { padding: 4px 8px 3px; }
+body.phone.tiny .clock .v { font-size: 17px; }
+body.phone:is(.tiny, .side) #xscript .ph { display: none; }   /* the voice log without its title row: Speaking or Listening sits in its corner */
+body.phone:is(.tiny, .side) .xs { top: 0; }
+body.phone:is(.tiny, .side) .xs-foot { height: 22px; padding-right: 6px; z-index: 3; }
+body.phone.tiny .xe.cur .tx .cite { font-size: 9px; height: 14px; min-width: 14px; padding: 0 2px; vertical-align: 1px; }
+body.phone.tiny .p-steps li { padding-block: 1px; line-height: 1.2; }
+body.phone.tiny .sb-proto { padding-block: 3px; }
+body.phone.tiny .p-steps li .sub { margin-top: 0; }
+/* the narrowest phones (320 to 359 px wide): a tighter status bar, page keys and Argo's line */
+@media (max-width: 359px) {
+  body.phone .sb { padding-inline: 6px; }
+  body.phone .sb-brand { gap: 6px; padding-left: 8px; }
+  body.phone .wm { font-size: 13px; letter-spacing: .18em; }
+  body.phone .sb-time .v, body.phone .sb-alarm .v { font-size: 13px; }
+  body.phone .sbar > .sb:nth-child(4) .v b { font-size: 12.5px; }
+  body.phone .sb-alarm { padding-inline: 8px; }
+  body.phone .pk { font-size: 9.5px; letter-spacing: .03em; }
+  body.phone .xe.cur .tx { font-size: 15px; }
+  body.phone.tiny #xscript { height: 132px; }
+  body.phone.tiny .xe.cur .tx { font-size: 14px; }
+}
+
+/* ---------- The scenario field and its list (Alex, Nov 8; docs/05, decision 39) ----------
+   The strip shows the scenario on the monitor in one field, as before. With more than one scenario the field carries a
+   small switch mark, and a click opens the monitor's own scenario list just above it (app.js, simMenu): dark like the
+   panels, a header row like theirs, one row per scenario with its number, code, event, setting, length and scene, the
+   one on the monitor marked ON SCREEN. Picking one loads it onto the monitor. Keys: arrows, Enter, Esc. */
+.sim-sc.pick { cursor: pointer; }
+.sim-sc .sw { flex: none; align-self: center; display: inline-flex; margin-left: 2px; color: var(--argo); }
+.sim-sc .sw svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.sim-sc[aria-expanded="true"] { box-shadow: inset 0 0 0 1.5px var(--argo), 0 0 30px rgba(197, 144, 255, .25); }
+.sim-menu {
+  position: fixed; z-index: 95; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--panel); border: 1px solid #3a4a5e; border-radius: 8px; text-align: left;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .03), 0 24px 70px rgba(0, 0, 0, .7), 0 0 40px rgba(197, 144, 255, .08);
+  animation: menuIn .18s var(--ease) both;
+}
+@keyframes menuIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.sim-menu[hidden] { display: none; }
+.smh { flex: none; display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel-2);
+  font-family: var(--cond); font-weight: 600; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--soft); white-space: nowrap; }
+.smh b { margin-left: auto; font-weight: 500; font-size: 12px; letter-spacing: .1em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.sim-opt { flex: none; display: grid; grid-template-columns: 30px auto minmax(0, 1fr) auto; align-items: baseline; column-gap: 12px; padding: 12px 14px;
+  border-bottom: 1px solid var(--line) !important; text-align: left; transition: background .15s; }
+.sim-opt:last-child { border-bottom: 0 !important; }
+.sim-opt:hover { background: #111a25; }
+.sim-opt:focus-visible { outline: 2px solid var(--argo) !important; outline-offset: -3px !important; background: #111a25; }
+.sim-opt[aria-selected="true"] { background: linear-gradient(90deg, rgba(197, 144, 255, .13), transparent 75%); box-shadow: inset 3px 0 0 var(--argo); }
+.sim-opt .n { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.sim-opt .id { font-family: var(--cond); font-weight: 700; font-size: 22px; letter-spacing: .02em; white-space: nowrap; }
+.sim-opt .tx { display: flex; flex-direction: column; min-width: 0; }
+.sim-opt .tx b { font-size: 16px; font-weight: 600; }
+.sim-opt .tx small { font-size: 13px; color: var(--muted); margin-top: 1px; }
+.sim-opt .tx em { font-style: normal; font-size: 13.5px; line-height: 1.4; color: var(--soft); margin-top: 6px; }
+.sim-opt .on { visibility: hidden; align-self: center; font-family: var(--cond); font-weight: 700; font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--argo); border: 1.5px solid currentColor; border-radius: 4px; padding: 2px 7px; white-space: nowrap; }
+.sim-opt[aria-selected="true"] .on { visibility: visible; }
+body.phone .sim-opt { grid-template-columns: 24px auto minmax(0, 1fr); padding: 10px 12px; column-gap: 10px; }
+body.phone .sim-opt .on { grid-column: 3; justify-self: start; margin-top: 6px; }
+body.phone .sim-opt .id { font-size: 18px; }
+body.phone .sim-opt .tx b { font-size: 14px; }
+body.phone .sim-opt .tx small { font-size: 12px; }
+body.phone .sim-opt .tx em { font-size: 12.5px; }
+body.sim-tall .sim-sc.pick { position: relative; }
+body.sim-tall .sim-sc.pick .tx b { margin-right: 26px; }   /* the switch mark sits in the first row's room; the rows under it keep their width */
+body.sim-tall .sim-sc .sw { position: absolute; right: 12px; top: 12px; }
+body.phone .sim.done .sim-sc .sw { display: none; }
+
+/* ---------- Day 128, the CO2 pocket (docs/05, decision 38; world-day128.js) ----------
+   Only while that scenario is on the monitor: its CO2 badge in the monitor's side cell, the breathing and CO2 trends,
+   the two signals of the ship in the assessment, and the plan's sleep stations, pocket, fan, vent, badges and spare fan. */
+.chart .ln.in-rr { stroke: var(--yellow); }
+.chart .ln.in-co2 { stroke: #dfe6ee; }
+.sm.co2 .lab, .sm.co2 .v { color: #dfe6ee; }
+.sm.co2.al { background: var(--amber-bg); }
+.sm.co2.al .v { color: var(--amber); }
+.sm.co2.crit { background: var(--red-bg); }
+.sm.co2.crit .v { color: var(--red); }
+.sm.co2.crit .tag { background: var(--red); color: #fff; }
+.assess .a-row.warn { border-left-color: var(--amber); background: rgba(255, 171, 46, .05); }
+.map .stn { fill: rgba(143, 163, 184, .04); stroke: #3d4d61; stroke-width: 1.2; stroke-dasharray: 4 3; }
+.map .stl { font: 600 11px var(--mono); fill: #6c7a8c; }
+.map .pocket { opacity: 0; transition: opacity .8s; pointer-events: none; }
+.map .pocket.on { opacity: 1; animation: pocketPulse 2.4s ease-in-out infinite; }
+@keyframes pocketPulse { 50% { opacity: .55; } }
+.map .fan circle { fill: #142030; stroke: #8fa3b8; stroke-width: 1.4; }
+.map .fan .bl { stroke: #8fa3b8; stroke-width: 1.8; stroke-linecap: round; }
+.map .fan .x { stroke: var(--red); stroke-width: 2.2; stroke-linecap: round; display: none; }
+.map .fan.off circle { stroke: var(--amber); }
+.map .fan.off .x { display: inline; }
+.map .fanl { font: 700 12px var(--mono); fill: var(--amber); }
+.map .fanl.t { font-weight: 600; fill: #c99a55; }
+.map .vent rect { fill: #10242e; stroke: #4fb3d6; stroke-width: 1.3; }
+.map .vent path { stroke: #4fb3d6; stroke-width: 1; }
+.map .vent .air { fill: none; stroke: #7fd3f0; stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 3 5; animation: flow 1.2s linear infinite; opacity: .45; }
+.map .vent.lit .air { opacity: 1; stroke-width: 2; }
+.map .rdb { fill: #0c1d15; stroke: var(--green); stroke-width: 1.2; }
+.map .rd { font: 700 13px var(--mono); fill: var(--green); text-anchor: middle; dominant-baseline: central; }
+body.phone .map .fanl { font-size: clamp(12px, calc(8px / var(--ms, 1)), 17px); }
+body.phone .map .rd { font-size: clamp(13px, calc(8.5px / var(--ms, 1)), 18px); }
+/* the report's Tonight row, cited in line 6: room for the citation number at its end, so it never covers the words */
+.report #rPlan b { padding-right: 30px; }
+/* Day 128 on a phone: the note after the scenario list fits the phone; the plan keeps Alex's way out and gives the map
+   the room of the spare-fan row (the spare is in the report and on the full map) */
+body.phone .toast { white-space: normal; width: max-content; max-width: calc(100% - 24px); font-size: 13px; text-align: center; }
+body.phone.w-day128 #wf .r1 + .r1 { display: none; }

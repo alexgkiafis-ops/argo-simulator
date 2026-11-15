@@ -1,0 +1,41 @@
+{
+  "_about": "Day 143 Mars transit habitat, prototype layout. Same coordinates as spec/habitat-map.svg (viewBox 0 0 760 456). State shown is the START of the scenario (03:31 ship time). Fictional layout, not a real NASA vehicle. The crew carries the team's own names since Nov 7, night (docs/05 decision 14); the ids are the first cast's names, kept to match the live draft's code: nikos is Alex, sarah is Maria, mike is Stelios, leo is Giannis.",
+  "viewBox": [0, 0, 760, 456],
+  "modules": [
+    { "id": "crew_quarters", "label": "Crew Quarters", "rect": [284, 72, 192, 80] },
+    { "id": "lab", "label": "Lab", "rect": [40, 196, 192, 110] },
+    { "id": "node2", "label": "Node 2", "rect": [284, 196, 192, 110] },
+    { "id": "galley", "label": "Galley", "rect": [528, 196, 192, 110] },
+    { "id": "hab_b", "label": "Hab B", "rect": [528, 350, 192, 80] }
+  ],
+  "hatches": [
+    { "id": "lab_node2", "connects": ["lab", "node2"], "rect": [232, 239, 52, 24] },
+    { "id": "node2_galley", "connects": ["node2", "galley"], "rect": [476, 239, 52, 24] },
+    { "id": "cq_node2", "connects": ["crew_quarters", "node2"], "rect": [418, 152, 24, 44] },
+    { "id": "galley_habb", "connects": ["galley", "hab_b"], "rect": [612, 306, 24, 44] }
+  ],
+  "crew": [
+    { "id": "nikos", "name": "Alex", "role": "flight engineer (the patient in the sketch)", "module": "lab", "pos": [196, 251], "state": "awake" },
+    { "id": "sarah", "name": "Maria", "role": "crew medical officer", "module": "crew_quarters", "pos": [430, 124], "state": "asleep" },
+    { "id": "mike", "name": "Stelios", "role": "pilot", "module": "hab_b", "pos": [560, 404], "state": "asleep" },
+    { "id": "leo", "name": "Giannis", "role": "mission specialist", "module": "hab_b", "pos": [582, 404], "state": "asleep" }
+  ],
+  "medical_kits": [
+    {
+      "id": "lab_kit", "label": "Lab kit", "module": "lab", "pos": [96, 251],
+      "contents": { "epinephrine_injector": 0 },
+      "log": [{ "mission_day": 112, "event": "epinephrine injector used, not restocked" }]
+    },
+    {
+      "id": "locker_n3", "label": "Locker N3", "module": "node2", "pos": [430, 251],
+      "contents": { "epinephrine_injector": 2 },
+      "log": []
+    }
+  ],
+  "routes": {
+    "nikos_to_n3": { "via_hatches": ["lab_node2"], "points": [[206, 251], [420, 251]] },
+    "sarah_to_n3": { "via_hatches": ["cq_node2"], "points": [[430, 133], [430, 240]] }
+  },
+  "hatch_distance_to_locker_n3": { "nikos": 1, "sarah": 1, "mike": 2, "leo": 2 },
+  "why_sarah": "Maria is the crew medical officer and one hatch from Node 2. Stelios and Giannis are two hatches away in Hab B. This is the answer to the possible phase 2 test question: 'Why did you wake Maria and not Stelios?'"
+}

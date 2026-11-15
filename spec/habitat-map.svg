@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 456" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <!-- Day 143 habitat map, reference layout. Coordinates match spec/habitat.json. -->
+  <!-- Moment shown: 03:32 ship time, right after Argo's kit line. -->
+  <defs>
+    <marker id="route-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#2563eb"/></marker>
+    <marker id="walk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#a8a29e"/></marker>
+  </defs>
+  <rect width="760" height="456" fill="#ffffff"/>
+  <text x="24" y="30" font-size="15" font-weight="600" fill="#1c1917">The nearest full injector is one hatch away, in Node 2</text>
+  <text x="24" y="50" font-size="11.5" fill="#57534e">Day 143, 03:32 ship time: the map the jury sees right after Argo's kit line</text>
+
+  <!-- hatches -->
+  <g fill="none" stroke="#a8a29e" stroke-width="1">
+    <rect x="232" y="239" width="52" height="24"/>
+    <rect x="476" y="239" width="52" height="24"/>
+    <rect x="418" y="152" width="24" height="44"/>
+    <rect x="612" y="306" width="24" height="44"/>
+  </g>
+
+  <!-- modules -->
+  <g fill="none" stroke="#a8a29e" stroke-width="1.25">
+    <rect x="284" y="72" width="192" height="80" rx="8"/>
+    <rect x="40" y="196" width="192" height="110" rx="8"/>
+    <rect x="284" y="196" width="192" height="110" rx="8"/>
+    <rect x="528" y="196" width="192" height="110" rx="8"/>
+    <rect x="528" y="350" width="192" height="80" rx="8"/>
+  </g>
+  <g font-weight="600" fill="#1c1917">
+    <text x="300" y="96">Crew Quarters</text>
+    <text x="56" y="220">Lab</text>
+    <text x="300" y="220">Node 2</text>
+    <text x="544" y="220">Galley</text>
+    <text x="544" y="374">Hab B</text>
+  </g>
+
+  <!-- Lab kit: empty -->
+  <rect x="88" y="243" width="16" height="16" rx="3" fill="none" stroke="#57534e" stroke-width="1.25" stroke-dasharray="3 2"/>
+  <text x="96" y="282" text-anchor="middle" font-weight="600" fill="#57534e">Lab kit</text>
+  <text x="96" y="298" text-anchor="middle" font-size="11.5" fill="#57534e">used on day 112</text>
+
+  <!-- Alex's route to locker N3 -->
+  <path d="M206 251H420" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#route-arrow)"/>
+
+  <!-- Alex, the patient -->
+  <circle cx="196" cy="251" r="8" fill="#dc2626"/>
+  <text x="196" y="282" text-anchor="middle" font-weight="600" fill="#1c1917">Alex</text>
+  <text x="196" y="298" text-anchor="middle" font-size="11.5" fill="#57534e">alert 03:31</text>
+
+  <!-- Locker N3: full -->
+  <rect x="422" y="243" width="16" height="16" rx="3" fill="#2563eb" fill-opacity="0.12" stroke="#2563eb" stroke-width="2"/>
+  <text x="430" y="282" text-anchor="middle" font-weight="600" fill="#1c1917">Locker N3</text>
+  <text x="430" y="298" text-anchor="middle" font-size="11.5" fill="#57534e">full injector</text>
+
+  <!-- Maria's route -->
+  <path d="M430 133V240" fill="none" stroke="#a8a29e" stroke-width="1.25" stroke-dasharray="4 3" marker-end="url(#walk-arrow)"/>
+  <circle cx="430" cy="124" r="7" fill="#a8a29e"/>
+  <text x="416" y="128" text-anchor="end" font-weight="600" fill="#1c1917">Maria, woken</text>
+
+  <!-- Hab B crew -->
+  <circle cx="560" cy="404" r="7" fill="#a8a29e"/>
+  <circle cx="582" cy="404" r="7" fill="#a8a29e"/>
+  <text x="598" y="402" font-size="11.5" fill="#57534e">Stelios, Giannis:</text>
+  <text x="598" y="416" font-size="11.5" fill="#57534e">asleep</text>
+
+  <!-- key -->
+  <line x1="48" y1="372" x2="88" y2="372" stroke="#2563eb" stroke-width="2"/>
+  <text x="100" y="376" font-size="11.5" fill="#57534e">Alex's route, lit when Argo names locker N3</text>
+  <line x1="48" y1="400" x2="88" y2="400" stroke="#a8a29e" stroke-width="1.25" stroke-dasharray="4 3"/>
+  <text x="100" y="404" font-size="11.5" fill="#57534e">Maria's route, lit when Argo wakes her</text>
+</svg>

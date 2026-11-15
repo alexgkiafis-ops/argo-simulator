@@ -1,0 +1,89 @@
+{
+  "_about": "The hardcoded Day 143 scenario, derived from docs/02-pitch-plan.md. The app should run these steps in order: play each Argo line (TTS audio + caption), fire its cues as it starts, then wait gap_s for the live actor. Use step order plus gaps, not absolute timestamps, because TTS lengths will vary. Approximate video positions are in docs/02-pitch-plan.md. The crew carries the team's own names (docs/05 decision 14): Alex is the patient, Argo wakes Maria. Crew ids in cues and sources are the first cast's names, kept to match the live draft's code and spec/habitat.json: nikos is Alex, sarah is Maria, mike is Stelios, leo is Giannis.",
+  "mission_day": 143,
+  "ship_time_start": "03:31",
+  "delay": { "one_way": "12:40", "earliest_reply": "25:20" },
+  "steps": [
+    { "id": "c0", "type": "caption", "text": "Day 143, 03:31 ship time.", "hold_s": 2, "cues": ["map:initial_state", "clocks:idle"] },
+
+    { "id": "a1", "type": "argo",
+      "text": "Alex, your heart rate is up 35 percent from your normal, and your oxygen is dropping. You're not on the treadmill. How are you feeling?",
+      "cues": ["clocks:start", "vitals:hr_amber", "vitals:spo2_amber", "map:nikos_alert"],
+      "sources": ["vitals.hr", "vitals.spo2", "habitat.crew.nikos.module"] },
+    { "id": "g1", "type": "gap", "gap_s": 5, "actor_line": "I'm fine, just... (coughs) My throat's itchy. It feels tight." },
+
+    { "id": "a2", "type": "argo", "text": "Any swelling in your lips or face?", "cues": [], "sources": ["procedure.severe_allergic_reaction.check"] },
+    { "id": "g2", "type": "gap", "gap_s": 4, "actor_line": "(touches his lips) Yeah. My lips." },
+
+    { "id": "a3", "type": "argo",
+      "text": "Tight throat, swelling, fast heart, falling oxygen. That matches the onboard procedure for a severe allergic reaction. Step one is epinephrine.",
+      "cues": ["procedure:open_step_1", "procedure:show_matched_signals"],
+      "sources": ["crew_report.throat", "crew_report.swelling", "vitals.hr", "vitals.spo2", "procedure.severe_allergic_reaction.steps[0]"] },
+    { "id": "g3", "type": "gap", "gap_s": 4, "actor_line": "Shouldn't we call Houston first?" },
+
+    { "id": "a4", "type": "argo",
+      "text": "Houston sees this in 12 minutes. Their answer gets here in 25, at the earliest. At this rate, your oxygen drops below 90 in about four minutes. The procedure says don't wait.",
+      "cues": ["clocks:highlight", "clocks:show_red 'Oxygen below 90%' 4:10"],
+      "sources": ["delay.one_way", "delay.earliest_reply", "vitals.spo2.trend", "procedure.severe_allergic_reaction.do_not_wait"] },
+    { "id": "g4", "type": "gap", "gap_s": 3, "actor_line": "Okay. The kit's right here. (reaches to his side)" },
+
+    { "id": "a5", "type": "argo",
+      "text": "That kit's injector was used on day 112. The closest one is in Node 2, through the hatch behind you. Locker N3. I've woken Maria.",
+      "cues": ["map:kit_grey lab_kit", "map:route_light nikos_to_n3", "map:kit_highlight locker_n3", "map:wake sarah", "map:route_light sarah_to_n3", "map:move_start sarah"],
+      "sources": ["habitat.medical_kits.lab_kit.log", "habitat.medical_kits.locker_n3", "habitat.routes.nikos_to_n3", "habitat.crew.sarah"] },
+    { "id": "g5", "type": "gap", "gap_s": 6, "actor_line": "(crosses the stage as his dot moves, mimes opening the locker) Got it.", "cues": ["map:move nikos along nikos_to_n3"] },
+
+    { "id": "a6", "type": "argo", "text": "Outer thigh. Through the fabric is fine.", "cues": [], "sources": ["procedure.severe_allergic_reaction.steps[0]"] },
+    { "id": "g6", "type": "gap", "gap_s": 4, "actor_line": "(mimes the injection) Done." },
+
+    { "id": "a7", "type": "argo",
+      "text": "Logged at 03:34. If you're not better in five minutes, the second injector is in the same locker.",
+      "cues": ["log:epinephrine 03:34", "map:kit_count locker_n3 1", "vitals:recover", "clocks:hide_red", "map:arrive sarah"],
+      "sources": ["procedure.severe_allergic_reaction.steps[2]", "habitat.medical_kits.locker_n3"] },
+    { "id": "g7", "type": "gap", "gap_s": 4, "actor_line": "(breathing easier) What do we tell Houston?" },
+
+    { "id": "a8", "type": "argo",
+      "text": "It's already written: vitals, timeline, the dose, and the new food pack you opened at 03:20. It's on its way.",
+      "cues": ["report:send"],
+      "sources": ["report"] },
+
+    { "id": "c1", "type": "caption",
+      "text": "12 minutes later, Houston has the full report. Their first message back isn't 'what happened?' It's 'what's next.'",
+      "hold_s": 6, "cues": ["earth:show_report"] }
+  ],
+
+  "procedure": {
+    "severe_allergic_reaction": {
+      "_disclaimer": "Illustrative prototype content based on general first-aid guidance. Not a real flight procedure and not medical advice.",
+      "check": "Ask about throat tightness, swelling of lips or face, trouble breathing.",
+      "steps": [
+        "Epinephrine auto-injector into the outer thigh. Through clothing is fine.",
+        "Call a crewmate to assist.",
+        "If there is no improvement in 5 minutes, give the second injector.",
+        "Keep monitoring breathing and oxygen. Stay with the crew member.",
+        "Send a report to the ground."
+      ],
+      "do_not_wait": "Do not delay epinephrine to consult the ground."
+    }
+  },
+
+  "report": {
+    "contents": ["vitals before and after", "timeline of events", "dose and time (epinephrine, 03:34)", "possible trigger: new food pack opened 03:20"]
+  },
+
+  "consistency_constraints": [
+    "At a1, the heart rate shown must be about 35 percent above Alex's baseline (for example baseline 64 bpm, shown 86 bpm) and above his baseline band.",
+    "At a1, oxygen (SpO2) must be below his baseline band and falling. At a4, the trend projection must cross 90 percent in about 4:10 (for example 94 percent falling about 1 point per minute).",
+    "Both delay clocks start at a1 from 12:40 and 25:20 and count down in real time.",
+    "At a4, 'Houston sees this in 12 minutes' and 'gets here in 25' say what the two clocks show as the line starts, to the nearest minute (Alex, Nov 7): 12 and 25 at the script's pace, fewer if the actor takes longer. The live draft's day143.js writes them as {earthIn} and {replyIn}.",
+    "The ship clock runs in real time on screen (Nov 7). Every time Argo says comes from it: a7's 'Logged at 03:34' says the minute the dose was logged (the live draft's day143.js writes it as 'Logged at {dose}'). Reset the screen as the pitch starts and the dose lands near 03:34.",
+    "Lab kit shows 0 injectors with the day 112 log entry. Locker N3 shows 2, then 1 after a7.",
+    "Every Argo line lights up its sources on screen at the moment it starts (vitals, clocks, procedure card, map items)."
+  ],
+
+  "review_notes": [
+    "Realism: epinephrine usually raises heart rate. After a7, show oxygen recovering and breathing settling, and let heart rate ease slowly rather than drop fast. A doctor on the jury would notice. (Done Nov 7 in the live draft's calm-down, design/v2-brief.md. Made visible the same day: once oxygen and breathing are back, the alarm steps down to an advisory and heart rate counts as expected after epinephrine, procedure MED-07, limit 120; see 'Calm-down step-down' in the brief.)",
+    "Gap lengths are drafts. Set them after a rehearsal with the actor: his real pace plus one second.",
+    "Argo's lines must never depend on the actor's exact words, so a fluffed line does not break the scene."
+  ]
+}

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Argo · scripted demo</title>
+<meta name="description" content="Argo, an onboard assistant for a Mars transit crew, in a scripted demo: pick a scenario and watch it handle an emergency before Earth can answer. Simulated data, pre-written lines, AI-generated voices.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2713%27 fill=%27%2304070b%27 stroke=%27%23c590ff%27 stroke-width=%273%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%276%27 fill=%27%23c590ff%27/%3E%3C/svg%3E">
+<!--
+  The Argo simulator (docs/05, decision 30; design/v2-brief.md): a real operations display for a Mars transit crew,
+  with a simulator strip under it, outside the screen, where visitors pick a scenario and run it, or go full screen.
+  scenarios.js lists the scenarios: today Day 143 self-playing (scene 2, decision 26), where the patient answers in
+  his recorded voice (voice/en/nikos-en.js), his words appear in the voice log, and nobody presses anything.
+  Scene 1, the same Day 143 answered live on stage (Alex plays the patient, the operator presses), is not in the
+  strip: the operator's word (scenarios.js, LIVE) switches to the presentation mode, with no strip, where 1 starts
+  it. Then Space, Right arrow or Page Down: the actor has finished, Argo answers; Left arrow or Page Up: undo a press
+  made too early; 0 twice: back to the calm screen (cue list in design/v2-brief.md).
+  Sound (sound.js, all synthesized in the browser, plus the recorded voices): M sound on and off, H the cabin hum.
+  Alarm A and Earth link A were picked on Nov 7; add ?try to switch candidates again with A and E.
+  Add #play for a hands-free scene 1 that uses the script's gap lengths and ends in the calm-down (for reviewing);
+  ?still for frozen, complete states (screenshots), with &ann=medical|earth|warning|report to freeze an announcement.
+  Fonts are bundled in fonts/ (open license). Layout from spec/habitat.json, lines and numbers from
+  spec/day143-timeline.json. All data simulated. The crew carries the team's own names and portraits, made from
+  their photos (portraits/): Alex, the patient, then Maria, Stelios and Giannis (docs/05, decision 14).
+  On a phone the same screen is laid out for the phone (docs/05, decision 32; style.css and app.js, "The phone
+  layout"): status bar, alarm and clocks, his vitals, one page at a time that follows Argo, and the voice log.
+  Online, tools/site/make-site.js publishes this page as index.html.
+-->
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="boot">
+<div class="stage" id="stage">
+
+  <!-- Status bar -->
+  <header class="sbar">
+    <div class="sb sb-brand"><span class="logo"></span><span class="wm">ARGO</span><span class="disp">Lab display</span></div>
+    <div class="sb"><span class="k">Mission day</span><span class="v"><b>143</b> · Mars transit</span></div>
+    <div class="sb sb-time"><span class="k">Ship time</span><span class="v" id="shipTime">03:31:02</span></div>
+    <div class="sb"><span class="k">Earth link</span><span class="v"><i class="led ok" id="linkLed"></i>DSN Madrid · delay <b class="mono">12:40</b> one way</span></div>
+    <div class="sb"><span class="k">Crew</span><span class="v" id="sbCrew">4 aboard · 3 asleep</span></div>
+    <div class="sb sb-alarm" id="sbAlarm"><span class="k">Alarms</span><span class="v" id="alarmCount">0</span></div>
+    <div class="sb sb-proto"><span>Scripted demo · simulated data · AI voices</span></div>
+    <div class="sb sb-snd off" id="sbSnd"><span class="v"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5h3.8L12 5.5v13l-4.7-4H3.5z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></svg>Sound off</span></div>
+  </header>
+
+  <!-- Alarm line: quiet memo, or the alarm banner and clocks -->
+  <div class="aline">
+    <div class="memo" id="memo">
+      <span class="no">NO ACTIVE ALARMS</span>
+      <span class="m">Sleep period <b>22:00 to 06:00</b></span>
+      <span class="m">Argo monitoring <b>4 crew</b> against personal baselines</span>
+      <span class="m">CO2 scrubber <b>bed B regenerating</b></span>
+      <span class="m">Next crew health check <b id="memoCheck">04:00</b></span>
+    </div>
+    <div class="banner hide" id="banner">
+      <div class="b-main">
+        <span class="b-title" id="bTitle">MEDICAL ALERT · ALEX · LAB</span>
+        <span class="b-sep"></span>
+        <span class="b-meta"><small>Raised</small><span id="bRaised">03:32:44</span></span>
+        <span class="b-sep"></span>
+        <span class="b-meta" id="bWhy"><small>Trigger</small>Off personal baseline: heart rate, oxygen</span>
+        <span class="b-snd off" id="bSnd"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 16.5H6l1.3-1.8c.5-.7.7-1.5.7-2.3V10a4 4 0 0 1 8 0v2.4c0 .8.2 1.6.7 2.3z"/><path d="M10.2 19.3a2 2 0 0 0 3.6 0"/><path d="M4 4l16 16"/></svg>Audio paused</span>
+        <span class="b-level" id="bLevel">CAUTION</span>
+      </div>
+    </div>
+    <div class="clocks" id="clocks">
+      <div class="clock off" id="ckEarth"><div class="k" id="c1k">Earth sees this in</div><div class="v" id="c1">12:40</div></div>
+      <div class="clock off" id="ckReply"><div class="k" id="c2k">Earliest reply in</div><div class="v" id="c2">25:20</div></div>
+      <div class="clock o2 off" id="ckO2"><div class="k">Oxygen below 90% in</div><div class="v" id="c3">4:10</div></div>
+    </div>
+  </div>
+
+  <!-- Page keys, on a phone only (docs/05, decision 32): one large page at a time, the one Argo is talking about
+       unless the visitor taps another (app.js, pages) -->
+  <nav class="pkeys" id="pkeys" aria-label="Monitor pages"></nav>
+
+  <!-- Crew -->
+  <section class="panel crew" id="crew">
+    <div class="ph"><span class="t">Crew</span><span class="r" id="crewHead">Personal baselines · <b>14-day</b></span></div>
+    <div class="list" id="crewList"></div>
+  </section>
+
+  <!-- Patient monitor (emergency) -->
+  <section class="panel monitor hide" id="monitor">
+    <div class="ph"><span class="t">Patient monitor · Alex</span><span class="r"><i class="led ok" id="monLed"></i>Biomonitor shirt + finger SpO2 · <b>synced 1 s ago</b> · <span id="monLim">alarm limits: personal</span></span></div>
+    <div class="mon">
+      <div class="wave ecg"><span class="wl">ECG · LEAD II</span><canvas id="ecg"></canvas></div>
+      <div class="num hr" id="numHR">
+        <span class="lab">HR <small>bpm</small><svg class="heart" id="heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5C5.2 15.6 2 12 2 8.2 2 5.4 4.2 3.5 6.7 3.5c2.1 0 3.9 1.2 5.3 3.1 1.4-1.9 3.2-3.1 5.3-3.1 2.5 0 4.7 1.9 4.7 4.7 0 3.8-3.2 7.4-10 12.3z"/></svg></span>
+        <span class="lim" id="hrLim">80<br>48</span>
+        <span class="big" id="hrVal">85</span>
+        <span class="tag" id="hrTag">+35% VS BASELINE</span>
+      </div>
+      <div class="wave pl"><span class="wl">PLETH · SpO2</span><canvas id="pleth"></canvas></div>
+      <div class="num o2" id="numO2">
+        <span class="lab">SpO2 <small>%</small></span>
+        <span class="lim">100<br>96</span>
+        <span class="pbar" aria-hidden="true"><i id="pbar"></i></span>
+        <span class="big" id="o2Val">95</span>
+        <span class="tag" id="o2Tag">FALLING</span>
+      </div>
+      <div class="trends">
+        <div class="tr"><div class="th">HR trend <b id="hrNote">+35% vs baseline 63</b></div><svg class="chart" id="hrChart" viewBox="0 0 300 150"></svg></div>
+        <div class="tr"><div class="th">SpO2 trend <b id="o2Note">Falling</b></div><svg class="chart" id="o2Chart" viewBox="0 0 300 150"></svg></div>
+      </div>
+      <div class="side">
+        <div class="sm rr" id="numRR"><div class="lab">Resp <small>rpm · limits 8 to 20</small><span class="tag" id="rrTag">ABOVE LIMIT</span></div><div class="v" id="rrVal">22</div></div>
+        <div class="sm tp"><div class="lab">Temp <small>°C skin · baseline 36.6</small></div><div class="v" id="tpVal">36.8</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Habitat plan -->
+  <section class="panel plan" id="plan">
+    <div class="ph"><span class="t">Habitat plan</span><span class="r" id="planMode">Overview · deck 1</span></div>
+    <svg class="map" id="map" viewBox="30 56 700 392" preserveAspectRatio="xMidYMid meet">
+      <g>
+        <rect class="hatch" x="232" y="239" width="52" height="24" rx="3"/>
+        <rect class="hatch" x="476" y="239" width="52" height="24" rx="3"/>
+        <rect class="hatch" x="418" y="152" width="24" height="44" rx="3"/>
+        <rect class="hatch" x="612" y="306" width="24" height="44" rx="3"/>
+      </g>
+      <g>
+        <rect id="m-cq" class="mod" x="284" y="72" width="192" height="80" rx="10"/>
+        <rect id="m-lab" class="mod" x="40" y="196" width="192" height="110" rx="10"/>
+        <rect id="m-node2" class="mod" x="284" y="196" width="192" height="110" rx="10"/>
+        <rect id="m-galley" class="mod" x="528" y="196" width="192" height="110" rx="10"/>
+        <rect id="m-habb" class="mod" x="528" y="350" width="192" height="80" rx="10"/>
+      </g>
+      <g>
+        <text class="ml" x="296" y="96">CREW QTRS</text>
+        <text class="ml" x="52" y="220">LAB</text>
+        <text class="ml" x="296" y="220">NODE 2</text>
+        <text class="ml" x="540" y="220">GALLEY</text>
+        <text class="ml" x="540" y="374">HAB B</text>
+      </g>
+      <g>
+        <text class="hid" id="h-ln2" x="258" y="282" text-anchor="middle">L-N2</text>
+        <text class="hid" x="502" y="282" text-anchor="middle">N2-G</text>
+        <text class="hid" id="h-cqn2" x="410" y="178" text-anchor="end">CQ-N2</text>
+        <text class="hid" x="644" y="332">G-HB</text>
+      </g>
+      <!-- other equipment, quiet -->
+      <g class="eqg" id="eqg">
+        <rect class="eqbox" x="300" y="268" width="62" height="24" rx="3"/><text class="eq" x="331" y="284" text-anchor="middle">TREADMILL</text>
+        <rect class="eqbox" x="636" y="268" width="68" height="24" rx="3"/><text class="eq" x="670" y="284" text-anchor="middle">FOOD G1</text>
+      </g>
+      <!-- routes (guidance view); the bright dots flow toward the destination -->
+      <g id="routes" class="hide">
+        <path class="route-halo" d="M206 251H416"/>
+        <path class="route" d="M206 251H416"/>
+        <path class="route-flow" d="M206 251H416"/>
+        <circle class="wp" cx="258" cy="251" r="5"/>
+        <path class="route-halo" d="M430 138V236"/>
+        <path class="route sec" d="M430 138V236"/>
+        <path class="route-flow sec" d="M430 138V236"/>
+        <circle class="wp" cx="430" cy="174" r="4"/>
+      </g>
+      <!-- kits -->
+      <g id="kitLab" class="kit"><rect x="85" y="240" width="22" height="22" rx="4"/><path d="M96 245.5v11M90.5 251h11"/></g>
+      <text class="kl" x="96" y="282" text-anchor="middle">LAB KIT</text>
+      <text class="ks amber hide" id="kitLabS" x="48" y="298">EPI 0 · USED DAY 112</text>
+      <g id="kitN3" class="kit"><rect x="419" y="240" width="22" height="22" rx="4"/><path d="M430 245.5v11M424.5 251h11"/></g>
+      <text class="kl" x="430" y="282" text-anchor="middle">LOCKER N3</text>
+      <text class="ks dim" id="kitN3S" x="430" y="298" text-anchor="middle">EPI 2</text>
+      <!-- crew markers -->
+      <g id="mk-mike" class="cm sleep"><circle class="c" cx="566" cy="404" r="13"/><text x="566" y="404">S</text></g>
+      <g id="mk-leo" class="cm sleep"><circle class="c" cx="598" cy="404" r="13"/><text x="598" y="404">G</text></g>
+      <g id="mk-sarah" class="cm sleep"><circle class="ring" cx="452" cy="116" r="13"/><circle class="c" cx="452" cy="116" r="13"/><text x="452" y="116">M</text></g>
+      <g id="mk-nikos" class="cm awake"><circle class="ring" cx="196" cy="251" r="13"/><circle class="c" cx="196" cy="251" r="13"/><text x="196" y="251">A</text></g>
+      <!-- citations (filled per state) -->
+      <g id="mapCites"></g>
+      <!-- scale and orientation -->
+      <g>
+        <path class="scale" d="M44 440v-5h48v5"/><text class="scale-l" x="98" y="441">2 m</text>
+        <text class="scale-l" x="700" y="68" text-anchor="end">FWD →</text>
+      </g>
+    </svg>
+    <div class="wf hide" id="wf">
+      <div class="r1"><span class="who">ALEX</span><span class="path">Lab <i>→ hatch</i> L-N2 <i>→</i> Locker N3</span><span class="m" id="wfN">9.8 m · 15 s</span></div>
+      <div class="r1"><span class="who s">MARIA</span><span class="path">Crew Qtrs <i>→ hatch</i> CQ-N2 <i>→</i> Node 2</span><span class="m" id="wfS">4.8 m · ETA 0:25</span></div>
+    </div>
+    <div class="legend" id="legend">
+      <span><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="#1b2736" stroke="#8fa3b8" stroke-width="1.4"/></svg>Crew</span>
+      <span><svg viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" fill="#142030" stroke="#8fa3b8" stroke-width="1.4"/><path d="M8 4.5v7M4.5 8h7" stroke="#8fa3b8" stroke-width="1.6"/></svg>Medical kit</span>
+      <span><svg viewBox="0 0 16 16"><rect x="1.5" y="4" width="13" height="8" rx="1.5" fill="none" stroke="#3a4a5e"/></svg>Equipment</span>
+      <span><b class="mono">L-N2</b>Hatch ID</span>
+      <span><b class="mono">EPI</b>Epinephrine</span>
+    </div>
+  </section>
+
+  <!-- Medical inventory (normal) -->
+  <section class="panel inv" id="inv">
+    <div class="ph"><span class="t">Medical inventory</span><span class="r">RFID tracked · <b>checked 03:00</b></span></div>
+    <table>
+      <tr><th>Location</th><th>Item</th><th>Qty</th><th>Status</th></tr>
+      <tr><td>Lab kit</td><td>Epinephrine injector</td><td class="q">0 / 1</td><td><span class="s" style="color: var(--amber)"><i class="led amber"></i>Used day 112</span></td></tr>
+      <tr><td>Locker N3</td><td>Epinephrine injector</td><td class="q">2 / 2</td><td><span class="s"><i class="led ok"></i>OK</span></td></tr>
+      <tr><td>Locker N3</td><td>Antihistamine tabs</td><td class="q">18</td><td><span class="s"><i class="led ok"></i>OK</span></td></tr>
+      <tr><td>Locker N3</td><td>Airway kit</td><td class="q">1</td><td><span class="s"><i class="led ok"></i>OK</span></td></tr>
+      <tr><td>Galley</td><td>Defibrillator (AED)</td><td class="q">1</td><td><span class="s"><i class="led ok"></i>Self-test OK</span></td></tr>
+      <tr><td>Hab B kit</td><td>Trauma kit</td><td class="q">1</td><td><span class="s"><i class="led ok"></i>OK</span></td></tr>
+    </table>
+    <div class="note">Restock request for Lab kit queued for the day 150 inventory.</div>
+  </section>
+
+  <!-- Assessment (a1 to a2): what Argo knows before it asks; no procedure until the crew answers -->
+  <section class="panel assess hide" id="assess">
+    <div class="ph"><span class="t">Medical event · Alex</span><span class="r">Assessment · <b>started <span id="aStart">03:32:44</span></b></span></div>
+    <div class="body">
+      <div class="a-h">Signals</div>
+      <div class="a-row" id="aHR"><span class="a-v">Heart rate <b>85</b>, +35% vs baseline 63</span><span class="a-s">sensor · ECG</span></div>
+      <div class="a-row" id="aO2"><span class="a-v">SpO2 <b>95</b>, below baseline, falling</span><span class="a-s">sensor · finger</span></div>
+      <div class="a-row" id="aAct"><span class="a-v">Activity: <b>resting</b>, not exercising</span><span class="a-s">sensor · motion</span></div>
+      <div class="a-row"><span class="a-v">Location: <b>Lab</b>, no crewmate nearby</span><span class="a-s">habitat</span></div>
+      <div class="a-h">Crew report</div>
+      <div id="aCrew"><div class="a-row wait"><span class="a-v"><span class="pulse ps"></span>Awaiting Alex's answer</span><span class="a-s">voice</span></div></div>
+      <div class="a-h">Procedure</div>
+      <div class="a-none" id="aCheck">Not matched yet. Argo asks the crew before it matches a procedure.</div>
+    </div>
+  </section>
+
+  <!-- Procedure (from a3) -->
+  <section class="panel proc hide" id="proc">
+    <div class="ph"><span class="t">Procedure · MED-07</span><span class="r" id="pHead"><b>Step 1 of 5</b> · illustrative, not medical advice</span></div>
+    <div class="body">
+      <div class="p-title" id="pTitle">SEVERE ALLERGIC REACTION</div>
+      <div class="p-sig">
+        <span id="sig0">Tight throat<i>reported</i></span><span id="sig1">Lip swelling<i>reported</i></span><span id="sig2">Heart rate <b id="sigHr">+35%</b><i>sensor</i></span><span id="sig3">SpO2 falling<i>sensor</i></span>
+      </div>
+      <ol class="p-steps" id="pSteps"></ol>
+      <div class="p-dont" id="pDont">DO NOT DELAY EPINEPHRINE TO CONSULT THE GROUND</div>
+    </div>
+  </section>
+
+  <!-- Report (a8) -->
+  <section class="panel report hide" id="report">
+    <div class="ph"><span class="t">Report to Earth</span><span class="r">MED-07 step 5 · <b>auto-generated</b></span></div>
+    <div class="body">
+      <div class="r-title">MEDICAL EVENT · DAY 143 · ALEX</div>
+      <div class="r-sub">Written by Argo at <span id="rWritten">03:34:13</span> ship time, for flight surgeon review</div>
+      <ul class="r-list">
+        <li><span>Vitals</span><b id="rVitals">HR 63 → 92 → 90 · SpO2 98 → 94 → 96</b></li>
+        <li><span>Timeline</span><b id="rTimeline">03:20 to 03:34 · event log attached</b></li>
+        <li><span>Dose</span><b id="rDose">Epinephrine injector · 03:34:02</b></li>
+        <li id="rTrigger"><span>Possible trigger</span><b><em>New food pack</em> · opened 03:20, Galley</b></li>
+        <li><span>Attached</span><b>ECG strip · SpO2 trend · transcript</b></li>
+      </ul>
+      <div class="r-tx" id="rTx">
+        <div class="k" id="rTxK">Transmitting · DSN Madrid</div>
+        <div class="bar"><i id="rBar"></i></div>
+        <div class="row"><span id="rEtaK">Arrives at Earth in</span><b id="rEta">12:37</b></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Argo transcript -->
+  <section class="panel xscript" id="xscript">
+    <div class="ph"><span class="t">Argo · voice log</span><span class="r" id="xsHead">Channel: <b>Lab</b></span></div>
+    <div class="xs" id="xs"></div>
+    <div class="xs-foot">
+      <div class="ind" id="indIdle"><i class="led ok"></i>Standing by</div>
+      <div class="ind listen" id="indListen"><span class="pulse"></span>Listening · Alex</div>
+      <div class="ind speak" id="indSpeak"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span>Speaking</div>
+      <span class="r">On-board · offline capable</span>
+    </div>
+  </section>
+
+  <!-- Event log -->
+  <section class="panel log" id="log">
+    <div class="ph"><span class="t">Event log</span><span class="r">All modules · <b>newest first</b></span></div>
+    <div class="rows" id="logRows"></div>
+  </section>
+
+  <!-- Habitat systems strip -->
+  <footer class="sys" id="sys">
+    <div class="h">CABIN</div>
+    <div class="c"><i class="led ok"></i><span class="k">O2</span><span class="v"><span id="sys-O2">21.2</span><small>kPa</small></span></div>
+    <div class="c"><i class="led ok"></i><span class="k">CO2</span><span class="v"><span id="sys-CO2">0.31</span><small>kPa</small></span></div>
+    <div class="c"><i class="led ok"></i><span class="k">Pressure</span><span class="v"><span id="sys-P">101.3</span><small>kPa</small></span></div>
+    <div class="c"><i class="led ok"></i><span class="k">Temp</span><span class="v"><span id="sys-T">22.4</span><small>°C</small></span></div>
+    <div class="c"><i class="led ok"></i><span class="k">Humidity</span><span class="v"><span id="sys-H">46</span><small>%</small></span></div>
+    <div class="c"><i class="led ok"></i><span class="k">Power</span><span class="v"><span id="sys-W">18.4</span><small>kW</small></span></div>
+    <div class="c"><i class="led ok"></i><span class="k">Water</span><span class="v"><span id="sys-L">1,236</span><small>L</small></span></div>
+  </footer>
+
+  <!-- Announcements for key moments: a band nobody can miss, which then settles into the banner or panel -->
+  <div class="ann" id="ann" aria-live="assertive">
+    <div class="ann-scrim"></div>
+    <div class="ann-box">
+      <div class="ann-in">
+        <div class="ann-top"><span class="ann-lv">CAUTION</span><span class="ann-code"></span><span class="ann-tm"></span></div>
+        <div class="ann-title"></div>
+        <div class="ann-sub"></div>
+        <div class="ann-link hide"><span class="ann-from"></span><span class="ann-dots"></span><span class="ann-to"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback for the sound keys (A, E, H) -->
+  <div class="toast" id="toast" aria-live="polite"></div>
+
+</div>
+
+<!-- The simulator strip (docs/05, decision 30), a slim bar at all times: outside the monitor, like the keys under a hospital monitor, so the
+     screen itself stays a real system. Visitors pick a scenario (scenarios.js), run it with sound, or go full screen.
+     During a run it is a slim bar with Stop; in full screen, or on a phone held sideways, it hides until the pointer
+     moves or the screen is tapped. On a phone held upright it is a panel at the bottom before a run and a slim bar
+     during one (decision 32). Until the voices have
+     loaded, the Run button waits and says so (the strip keeps the same layout). app.js fills in the scenarios and runs it; hidden in scene 1, #play and ?still. -->
+<div class="sim loading" id="sim" data-state="pick" role="region" aria-label="Simulation controls">
+  <div class="sim-lab"><small>Simulation</small><b>Pick a scenario</b></div>
+  <div class="sim-list" id="simList"></div>
+  <button type="button" class="sim-btn sim-run" id="simRun" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L18.8 12z"/></svg><span id="simRunL">Loading voices…</span></button>
+  <div class="sim-state"><i></i>Running<b id="simName"></b><span class="t" id="simTime">0:00</span></div>
+  <div class="sim-prog" aria-hidden="true"><b id="simProg"></b></div>
+  <button type="button" class="sim-btn sim-ghost sim-stop" id="simStop"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg>Stop</button>
+  <button type="button" class="sim-btn sim-ghost sim-snd" id="simSnd" aria-label="Sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5h3.8L12 5.5v13l-4.7-4H3.5z"/><path class="on" d="M15.5 9a4.5 4.5 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/><path class="off" d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></svg><span id="simSndL">Sound on</span></button>
+  <button type="button" class="sim-btn sim-ghost sim-fs" id="simFs" aria-label="Full screen"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="on" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path class="off" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg><span id="simFsL">Full screen</span></button>
+  <p class="sim-hint">Turn your phone sideways for a larger monitor.</p>
+  <p class="sim-honest">Scripted demo: simulated data, pre-written lines, AI-generated voices.</p>
+</div>
+
+<script src="vitals.js"></script>
+<script src="announce.js"></script>
+<script src="sound.js"></script>
+<script src="day143.js"></script>
+<!-- Day 128, the CO2 pocket (docs/05, decision 38): its script and what the monitor shows for it; its voices
+     (voice/en/day128-en.js) load the first time a visitor picks it -->
+<script src="day128.js"></script>
+<script src="world-day128.js"></script>
+<script src="scenarios.js"></script>
+<!-- The voices (voice/en/voice-en.js and nikos-en.js, about 8 MB) load after the monitor is up: see app.js, loadVoices -->
+<script src="app.js"></script>
+<!-- The pitch slides on S (docs/05, decision 36); their images load only when S is pressed -->
+<script src="slides.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+{"text":"[tired] Does Houston know?","voice":"rNCpBDykmtbS99HIj7Ku","model":"eleven_v4","settings":{"stability":0.5,"similarity_boost":0.75},"seed":143,"made":"2026-11-08T14:42:06.855Z","heard":{"text":"Does Houston know?","words":[{"t":"Does","s":0.4,"e":0.56,"k":"word"},{"t":"Houston","s":0.64,"e":1.08,"k":"word"},{"t":"know?","s":1.12,"e":1.36,"k":"word"}]}}

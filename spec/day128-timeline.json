@@ -1,0 +1,120 @@
+{
+  "_about": "Day 128, the CO2 pocket: the second scenario visitors can run in the simulator (docs/05, decision 38). Self-playing only, like scene 2 of Day 143 (decision 26): the patient answers in his recorded voice and Argo carries on when he finishes. The app runs it from design/draft-v2/day128.js (the lines, cues and sources) and design/draft-v2/world-day128.js (what the monitor shows: its night, panels, map, vitals and calm-down). The crew carries the team's own names (decision 14): Alex is the patient, asleep in sleep station CQ-2; Maria sleeps in CQ-1, Stelios and Giannis in Hab B. Crew ids are the first cast's names (nikos is Alex, sarah is Maria, mike is Stelios, leo is Giannis). Every number is simulated and kept to what the sources below say; the scenario compresses recovery to about a minute, as Day 143 does.",
+  "mission_day": 128,
+  "ship_time_landing": "01:58:40",
+  "ship_time_run": "02:00:40",
+  "alert": "02:00:44",
+  "delay": { "one_way": "10:40", "earliest_reply": "21:20", "station": "DSN Canberra", "why": "15 days before Day 143, the ship is closer to Earth (12:40 on day 143)" },
+  "before_the_run": [
+    { "time": "22:35:15", "what": "Argo to Alex: 'Station CQ-2: lights off, fan on. Good night.' (the evening voice log)" },
+    { "time": "01:55:22", "what": "Sleep station CQ-2 fan stopped, motor current 0 A" },
+    { "time": "01:55:52 to 01:56:52", "what": "Three automatic restarts fail; maintenance ticket M-418 for the morning" },
+    { "time": "01:56:54", "what": "Argo: CQ-2 occupied (Alex, asleep), no airflow; watching his CO2 badge; wakes him at 1.0 %" }
+  ],
+  "model": {
+    "co2_at_face": "From the cabin's 0.3 % toward 1.8 % with no airflow: 0.3 + 1.5 x (1 - exp(-t / 8 min)) after the fan stops. 1.0 % about 5 minutes after the stop (crossed about 20 s before the alert), 1.1 % at line 2. Out in the moving air of Node 2: back to the cabin's 0.3 % within seconds.",
+    "wake_limit": "1.0 % at his face (Argo's rule for a sleeper with no airflow): about twice the NIOSH 8-hour limit (0.5 %), more than twice NASA's current limit for the cabin (3 mmHg, 0.4 %, one-hour average).",
+    "breathing": "Sleep baseline 13 a minute. Asleep it barely answers the CO2 (14 at the alert); awake, short of breath, about 21 (his limit is 20); in moving air it settles toward 15, back within the limit about 20 s after he leaves the station.",
+    "heart_rate": "Sleep baseline 54, awake baseline 63, limit 80. 56 at the alert (asleep); about 80 once woken (startled, short of breath, a headache); easing toward 65 in moving air.",
+    "spo2": "97 throughout: oxygen stays normal at these CO2 levels, which is how Argo tells the air from his lungs.",
+    "red_clock": "In the WARNING: how long his station has had no airflow (counts up from the fan's stop)."
+  },
+  "steps": [
+    { "id": "alert", "at_s": 0, "type": "cue", "cue": "airAlert", "band": "CO2 ALERT (caution): CO2 at his face 1.0 % · no airflow since 01:55 · he is asleep" },
+    { "id": "earth", "at_s": 3, "type": "cue", "cue": "contactEarth", "band": "CONTACTING EARTH: Earth sees this in 10:40 · earliest reply in 21:20" },
+
+    { "id": "b1", "type": "argo", "at_s": 6,
+      "text": "Alex, wake up. The air in your sleep station has stopped moving. How do you feel?",
+      "cues": ["earthClocks", "wakeCall"],
+      "sources": ["assessment: Fan CQ-2 off since 01:55, 3 restarts failed", "map: the fan of CQ-2", "monitor: CO2 at his face"] },
+    { "id": "bn1", "type": "patient", "tone": "groggy", "answer": "Ugh. What? My head hurts, and my heart's racing. Is something wrong with me?" },
+
+    { "id": "b2", "type": "argo",
+      "text": "It's the air, not you. Your oxygen is normal. Your fan has been off since 01:55, and in zero gravity your breath stays around your face. The CO2 there is over 1 percent, and that's the headache.",
+      "cues": ["procedure"],
+      "sources": ["monitor: SpO2 97, NORMAL", "checklist: Fan off 01:55; map: FAN OFF 01:55", "checklist: Zero g: no convection; map: the pocket around his head", "monitor: CO2 1.1 %; checklist: CO2 at face"] },
+    { "id": "bn2", "type": "patient", "tone": "drowsy", "answer": "Okay... let me just sleep it off." },
+
+    { "id": "b3", "type": "argo", "lead": "warning",
+      "band": "WARNING: No airflow for 6:0x · drowsy · asleep he may not wake: out now",
+      "text": "No, not in there. The CO2 keeps rising, and asleep you might not wake up on your own. Unzip and come out through the hatch to Node 2. The air there is moving.",
+      "cues": ["guide"], "listen": ["alexFloat"],
+      "sources": ["monitor: CO2 at his face, rising", "checklist note: A sleeper in a CO2 pocket may not wake · get out", "map: hatch CQ-N2 and the route", "map: the vent in Node 2"] },
+    { "id": "bn3", "type": "patient", "tone": "breathless", "answer": "Okay. Okay, I'm coming out.", "then": "floats out through hatch CQ-N2 to the vent in Node 2 (8 s on the map)" },
+
+    { "id": "b4", "type": "argo", "press": ["alexOut"],
+      "text": "Good. Stay by the vent and breathe normally. Your badge reads 0.3 percent now, like the cabin, and your breathing is already slowing.",
+      "sources": ["map: the vent", "monitor: CO2 0.3 %, cabin 0.3", "monitor: breathing, falling"] },
+    { "id": "bn4", "type": "patient", "answer": "(breathing easier) Better. Is Maria okay? Her station's right next to mine." },
+
+    { "id": "b5", "type": "argo", "cues": ["crewAir"],
+      "text": "Her fan is running, and her badge reads 0.3 percent, like Stelios and Giannis in Hab B. It was only your station, so I've let them sleep.",
+      "sources": ["map and Maria's tile: 0.3 %", "map and Stelios's and Giannis's tiles: 0.3 %", "map: sleep station CQ-2"] },
+    { "id": "bn5", "type": "patient", "tone": "tired", "answer": "Does Houston know?" },
+
+    { "id": "b6", "type": "argo", "lead": "report",
+      "band": "REPORT TO EARTH: exposure, vitals, cause and tonight's plan · arrives in 10:40",
+      "text": "They will. Houston sees this in {earthIn}, and their answer gets here in {replyIn}. The report is on its way: the fan, your readings, and the spare for the morning.",
+      "sources": ["clock: Earth sees this in", "clock: Earliest reply in", "report and its transmission", "report: Tonight; map: SPARE FAN in Galley stowage G-12"] },
+
+    { "id": "calm-down", "type": "calm-down", "what": "Breathing back within its limit (logged); about 15 s after Argo's last line the alarm steps down to a cyan ADVISORY: 'CO2 EVENT · ALEX · NODE 2 · Breathing back to normal · headache · under observation'. Heart rate eases toward his baseline (logged). The strip offers Run again." }
+  ],
+
+  "procedure": {
+    "ENV-04 CO2 pocket": {
+      "_disclaimer": "Illustrative prototype content. Not a real flight procedure and not medical advice.",
+      "title": "CO2 POCKET · NO AIRFLOW",
+      "signals": ["Headache, heart racing (crew)", "Drowsy (crew)", "Fan off 01:55 (ship)", "CO2 at face (badge)", "Zero g: no convection (physics)"],
+      "steps": [
+        "Leave the station: moving air (unzip, out through hatch CQ-N2)",
+        "Symptoms: watch (headache, breathing, confusion)",
+        "Other crew's CO2: check",
+        "CQ-2: closed till the fan swap (spare fan in Galley stowage G-12, morning)",
+        "Report to ground: send"
+      ],
+      "note": "A sleeper in a CO2 pocket may not wake · get out"
+    }
+  },
+
+  "report": {
+    "title": "CO2 EXPOSURE · DAY 128 · ALEX",
+    "rows": ["Exposure: CO2 at his face up to 1.1 % · about 6 min with no airflow", "Vitals: breathing 13 → 21 → 16 · HR 54 → 81 → 72 · SpO2 97", "Cause: fan CQ-2 stopped 01:55:22 · 3 restarts failed", "Tonight: Alex sleeps in Node 2 · CQ-2 closed · spare fan G-12 in the morning", "Attached: CO2 trend · vitals · transcript"],
+    "transmission": "DSN Canberra, arrives at Earth 10:40 after it is sent"
+  },
+
+  "consistency_constraints": [
+    "Line 2's '01:55' is the fan's stop on the checklist chip (Fan off 01:55), on the map (FAN OFF 01:55) and in the event log (01:55:22).",
+    "Line 2's 'over 1 percent' is his CO2 badge on the monitor as Argo says it (1.1 throughout the line).",
+    "Line 2's 'your oxygen is normal' is SpO2 97 with the tag NORMAL.",
+    "Line 4's '0.3 percent now, like the cabin' is his badge (0.3 throughout the line) and the cell's 'cabin 0.3'.",
+    "Line 4's 'your breathing is already slowing' is the breathing value falling during the line.",
+    "Line 5's '0.3 percent' is Maria's badge on the map and her tile; Stelios's and Giannis's badges read the same on the map and their tiles.",
+    "Line 6 says the minutes the two Earth clocks show as it starts (nearest minute; 9 and 20 at the script's pace), like Day 143's line 4 (one voice file per pair of minutes).",
+    "The float out to the vent (8 s) is finished before line 4 starts."
+  ],
+
+  "sources": [
+    { "claim": "Without convection, exhaled CO2 forms local pockets around the nose and mouth in microgravity", "source": "Law, Watkins and Alexander, In-Flight Carbon Dioxide Exposures and Related Symptoms, NASA/TP-2010-216126 (2010); NASA JSC abstract", "url": "https://ntrs.nasa.gov/citations/20100036637" },
+    { "claim": "With no ventilation, CO2 around a sleeping crew member's mouth and chin can pass 9 mmHg (about 1.2 %) within 10 minutes (CFD study cited in the TP above)", "source": "NASA/TP-2010-216126", "url": "https://ntrs.nasa.gov/citations/20100036637" },
+    { "claim": "Sleep station without airflow: CO2 reached the then one-hour limit (1.3 %) in about 13 minutes; the analysis did not conclusively show a sleeper would wake on his own", "source": "Keener et al., ISS Temporary Sleep Station ventilation analysis, ICES 2002", "url": "https://ntrs.nasa.gov/api/citations/20150020425/downloads/20150020425.pdf" },
+    { "claim": "ISS crew quarters: 2.1 m3, fans flush CO2 to prevent asphyxiation; CO2 asphyxiation is a catastrophic hazard; lint can reduce a crew quarters fan's airflow", "source": "Broyan et al., ICES 2008 and ICES 2010", "url": "https://ntrs.nasa.gov/api/citations/20080013462/downloads/20080013462.pdf" },
+    { "claim": "Ventilation must prevent CO2 and thermal pockets; the one-hour average CO2 in the habitable volume no more than 3 mmHg (0.4 %)", "source": "NASA-STD-3001 Volume 2, Rev F (2026), V2 6107 and V2 6004", "url": "https://standards.nasa.gov/system/files/tmp/NASA-STD-3001%20Vol%202%20Rev%20F.pdf" },
+    { "claim": "ISS operational CO2 limits (4.0, then 3.0 mmHg, 24-hour average); 0.5 % CO2 = 3.8 mmHg", "source": "Law and Alexander, NASA 2016; NASA OCHMO technical brief OCHMO-TB-004 (2026)", "url": "https://www.nasa.gov/wp-content/uploads/2023/12/ochmo-tb-004-carbon-dioxide.pdf" },
+    { "claim": "For each 1 mmHg of CO2, the odds of an ISS crew member reporting a headache doubled", "source": "Law et al., J Occup Environ Med 56(5):477-83 (2014)", "url": "https://pubmed.ncbi.nlm.nih.gov/24806559/" },
+    { "claim": "NIOSH limits for CO2: 0.5 % (8 hours), 3 % (15 minutes), 4 % immediately dangerous to life or health", "source": "NIOSH Pocket Guide to Chemical Hazards: carbon dioxide", "url": "https://www.cdc.gov/niosh/npg/npgd0103.html" },
+    { "claim": "Symptoms by CO2 level: headache and shortness of breath; drowsiness and confusion at high levels", "source": "US EPA, Carbon Dioxide as a Fire Suppressant (2000), Table B-1", "url": "https://www.epa.gov/sites/default/files/2015-06/documents/co2report.pdf" },
+    { "claim": "Breathing answers CO2 about half as much in sleep (49 % lower in non-REM, 69 % in REM, in men)", "source": "Berthon-Jones and Sullivan, J Appl Physiol 1984", "url": "https://pubmed.ncbi.nlm.nih.gov/6432751/" },
+    { "claim": "Oxygen stays normal while breathing extra CO2 (ventilation rises)", "source": "van der Schrier et al., Front Toxicol 2022", "url": "https://www.frontiersin.org/articles/10.3389/ftox.2022.1001709" },
+    { "claim": "Breathing returns to normal within minutes in fresh air; headaches can begin or worsen after the exposure", "source": "NIOSH criteria document for carbon dioxide (1976)", "url": "https://stacks.cdc.gov/view/cdc/19367" },
+    { "claim": "A sleeping crew member breathes out about 0.44 g of CO2 a minute (about 0.22 L)", "source": "NASA Baseline Values and Assumptions Document, Rev 2 (2022)", "url": "https://ntrs.nasa.gov/api/citations/20210024855/downloads/BVAD_2.15.22-final.pdf" },
+    { "claim": "NASA flew personal (crew-worn) CO2 monitors on the ISS because pockets are hard to detect", "source": "ISS daily summary reports (2016, 2017); NASA, wearable tech for space station research (2024)", "url": "https://www.nasa.gov/missions/station/iss-research/wearable-tech-for-space-station-research" },
+    { "claim": "On the ISS, Mission Control watches life support around the clock (the ETHOS console)", "source": "NASA Johnson, Mission Control Center", "url": "https://www.nasa.gov/johnson/jsc-mission-control-center" },
+    { "claim": "Astronauts must sleep near an air vent, or their exhaled CO2 can form a bubble around their head", "source": "Canadian Space Agency, Sleeping in space", "url": "https://www.asc-csa.gc.ca/eng/astronauts/living-in-space/sleeping-in-space.asp" }
+  ],
+
+  "review_notes": [
+    "The wake limit (1 %) is Argo's own rule in this fiction; the cited limits frame it (NIOSH 0.5 % for 8 hours, NASA 0.4 % for the cabin's one-hour average). NASA's CO2 SMACs were withdrawn in 2020, so the scenario does not show them.",
+    "A real crew quarters has its own fan-failure alarm (Broyan 2008); in this scenario the ship logs the fan's stop and its restarts, and Argo, which knows who sleeps where, watches the occupant's CO2 and wakes him at its limit.",
+    "Recovery is compressed (breathing back within its limit about 20 s after he leaves; in reality a few minutes), as Day 143 compresses its recovery."
+  ]
+}
